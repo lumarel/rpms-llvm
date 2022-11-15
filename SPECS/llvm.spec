@@ -1,3 +1,8 @@
+# We are building with clang for faster/lower memory LTO builds.
+# See https://docs.fedoraproject.org/en-US/packaging-guidelines/#_compiler_macros
+%global toolchain clang
+
+
 # Components enabled if supported by target architecture:
 %define gold_arches %{ix86} x86_64 %{arm} aarch64 %{power64} s390x
 %ifarch %{gold_arches}
@@ -11,16 +16,16 @@
 %bcond_without check
 
 %if %{with bundle_compat_lib}
-%global compat_maj_ver 12
+%global compat_maj_ver 13
 %global compat_ver %{compat_maj_ver}.0.1
 %endif
 
 %global llvm_libdir %{_libdir}/%{name}
 %global build_llvm_libdir %{buildroot}%{llvm_libdir}
-#%%global rc_ver 5
-%global maj_ver 13
+#global rc_ver 4
+%global maj_ver 14
 %global min_ver 0
-%global patch_ver 1
+%global patch_ver 6
 %if !%{maj_ver} && 0%{?rc_ver}
 %global abi_revision 2
 %endif
@@ -60,6 +65,14 @@
 %global _dwz_low_mem_die_limit_s390x 1
 %global _dwz_max_die_limit_s390x 1000000
 
+%ifarch %{arm}
+# koji overrides the _gnu variable to be gnu, which is not correct for clang, so
+# we need to hard-code the correct triple here.
+%global llvm_triple armv7l-redhat-linux-gnueabihf
+%else
+%global llvm_triple %{_host}
+%endif
+
 Name:		%{pkg_name}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}
 Release:	1%{?dist}
@@ -82,13 +95,16 @@ Source5:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat
 %if 0%{?abi_revision}
 Patch0:		0001-cmake-Allow-shared-libraries-to-customize-the-soname.patch
 %endif
-Patch2:		0001-XFAIL-missing-abstract-variable.ll-test-on-ppc64le.patch
+Patch1:		0001-XFAIL-missing-abstract-variable.ll-test-on-ppc64le.patch
+Patch2:		0001-Disable-CrashRecoveryTest.DumpStackCleanup-test-on-a.patch
 
 # RHEL-specific patches
 Patch101:	0001-Deactivate-markdown-doc.patch
+#Patch102: 	1.patch
 
 BuildRequires:	gcc
 BuildRequires:	gcc-c++
+BuildRequires:	clang
 BuildRequires:	cmake
 BuildRequires:	ninja-build
 BuildRequires:	zlib-devel
@@ -214,15 +230,12 @@ LLVM's modified googletest sources.
 
 %build
 
-# Disable LTO on s390x, this causes some test failures:
-# LLVM-Unit :: Target/AArch64/./AArch64Tests/InstSizes.Authenticated
-# LLVM-Unit :: Target/AArch64/./AArch64Tests/InstSizes.PATCHPOINT
-# LLVM-Unit :: Target/AArch64/./AArch64Tests/InstSizes.STACKMAP
-# LLVM-Unit :: Target/AArch64/./AArch64Tests/InstSizes.TLSDESC_CALLSEQ
-# On X86_64, LTO builds of TableGen crash.  This can be reproduced by:
-# %%cmake_build --target include/llvm/IR/IntrinsicsAArch64.h
-# Because of these failures, lto is disabled for now.
-%global _lto_cflags %{nil}
+#ifarch s390 s390x
+# Fails with "exceeded PCRE's backtracking limit"
+%global _lto_cflags %nil
+#else
+#global _lto_cflags -flto=thin
+#endif
 
 %ifarch s390 s390x %{arm} %ix86
 # Decrease debuginfo verbosity to reduce memory consumption during final library linking
@@ -230,7 +243,7 @@ LLVM's modified googletest sources.
 %endif
 
 # force off shared libs as cmake macros turns it on.
-%cmake  -G Ninja \
+%cmake	-G Ninja \
 	-DBUILD_SHARED_LIBS:BOOL=OFF \
 	-DLLVM_PARALLEL_LINK_JOBS=1 \
 	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -265,7 +278,7 @@ LLVM's modified googletest sources.
 	\
 	-DLLVM_INCLUDE_TESTS:BOOL=ON \
 	-DLLVM_BUILD_TESTS:BOOL=ON \
-	-DLLVM_LIT_EXTRA_ARGS=-v \
+	-DLLVM_LIT_ARGS=-v \
 	\
 	-DLLVM_INCLUDE_EXAMPLES:BOOL=ON \
 	-DLLVM_BUILD_EXAMPLES:BOOL=OFF \
@@ -293,10 +306,12 @@ LLVM's modified googletest sources.
 	-DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=OFF \
 	%{?abi_revision:-DLLVM_ABI_REVISION=%{abi_revision}} \
 	\
+	-DLLVM_DEFAULT_TARGET_TRIPLE=%{llvm_triple} \
 	-DSPHINX_WARNINGS_AS_ERRORS=OFF \
 	-DCMAKE_INSTALL_PREFIX=%{install_prefix} \
 	-DLLVM_INSTALL_SPHINX_HTML_DIR=%{_pkgdocdir}/html \
-	-DSPHINX_EXECUTABLE=%{_bindir}/sphinx-build-3
+	-DSPHINX_EXECUTABLE=%{_bindir}/sphinx-build-3 \
+	-DLLVM_INCLUDE_BENCHMARKS=OFF
 
 # Build libLLVM.so first.  This ensures that when libLLVM.so is linking, there
 # are no other compile jobs running.  This will help reduce OOM errors on the
@@ -375,7 +390,7 @@ cp -R utils/UpdateTestChecks %{install_srcdir}/utils/
 %if %{with gold}
 # Add symlink to lto plugin in the binutils plugin directory.
 %{__mkdir_p} %{buildroot}%{_libdir}/bfd-plugins/
-ln -s %{_libdir}/LLVMgold.so %{buildroot}%{_libdir}/bfd-plugins/
+ln -s -t %{buildroot}%{_libdir}/bfd-plugins/ ../LLVMgold.so
 %endif
 
 %else
@@ -438,6 +453,9 @@ rm %{buildroot}%{_bindir}/llvm-config%{exec_suffix}
 # ghost presence
 touch %{buildroot}%{_bindir}/llvm-config%{exec_suffix}
 
+%if %{without compat_build}
+cp -Rv ../cmake/Modules/* %{buildroot}%{_libdir}/cmake/llvm
+%endif
 
 
 %check
@@ -583,6 +601,18 @@ fi
 %endif
 
 %changelog
+* Mon Jul 18 2022 Timm Bäder <tbaeder@redhat.com> - 14.0.6-1
+- Update to 14.0.6
+
+* Mon Jun 20 2022 Timm Bäder <tbaeder@redhat.com> - 14.0.5-1
+- Update to 14.0.5
+
+* Fri Apr 29 2022 Timm Bäder <tbaeder@redhat.com> - 14.0.0-2
+- Remove llvm-cmake-devel package
+
+* Wed Apr 13 2022 Timm Bäder <tbaeder@redhat.com> - 14.0.0-1
+- Update to 14.0.0
+
 * Wed Feb 02 2022 Tom Stellard <tstellar@redhat.com> - 13.0.1-1
 - 13.0.1 Release
 
