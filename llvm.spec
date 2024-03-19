@@ -25,7 +25,7 @@
 %bcond_without bundle_compat_lib
 %bcond_without check
 
-%ifarch %ix86
+%ifarch %ix86 riscv64
 # Disable LTO on x86 in order to reduce memory consumption
 %bcond_with lto_build
 %elif %{with snapshot_build}
@@ -99,7 +99,7 @@
 
 Name:		%{pkg_name}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	2%{?dist}
+Release:	3%{?dist}
 Summary:	The Low Level Virtual Machine
 
 License:	Apache-2.0 WITH LLVM-exception OR NCSA
@@ -277,7 +277,7 @@ mv %{third_party_srcdir} third-party
 %global _lto_cflags %nil
 %endif
 
-%ifarch s390 s390x %ix86
+%ifarch s390 s390x %ix86 riscv64
 # Decrease debuginfo verbosity to reduce memory consumption during final library linking
 %global optflags %(echo %{optflags} | sed 's/-g /-g1 /')
 %endif
@@ -292,7 +292,7 @@ export ASMFLAGS="%{build_cflags}"
 	-DLLVM_PARALLEL_LINK_JOBS=1 \
 	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	-DCMAKE_SKIP_RPATH:BOOL=ON \
-%ifarch s390 %ix86
+%ifarch s390 %ix86 riscv64
 	-DCMAKE_C_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG" \
 	-DCMAKE_CXX_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG" \
 %endif
@@ -632,6 +632,9 @@ fi
 
 
 %changelog
+* Fri Jun 07 2024 Zhengyu He <hezhy472013@gmail.com> - 18.1.2-3
+- Add support for riscv64
+
 * Mon Apr 08 2024 Tulio Magno Quites Machado Filho <tuliom@redhat.com> - 18.1.2-2
 - Rebuild LLVM 18.1.2 (RHEL-27724)
 
