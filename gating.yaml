@@ -8,3 +8,11 @@ decision_contexts:
 subject_type: koji_build
 rules:
   - !PassingTestCaseRule {test_case_name: fedora-ci.koji-build.tier0.functional}
+--- !Policy
+product_versions:
+  - rhel-10
+decision_context: osci_compose_gate
+rules:
+  - !PassingTestCaseRule {test_case_name: baseos-ci.brew-build.tier0-tmt-x86_64-aarch64.functional}
+  - !PassingTestCaseRule {test_case_name: baseos-ci.brew-build.tier0-tmt-s390x-ppc64le.functional}
+  - !PassingTestCaseRule {test_case_name: osci.brew-build.rebuild.validation}
