@@ -99,7 +99,7 @@
 
 Name:		%{pkg_name}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	1%{?dist}
+Release:	2%{?dist}
 Summary:	The Low Level Virtual Machine
 
 License:	Apache-2.0 WITH LLVM-exception OR NCSA
@@ -632,6 +632,9 @@ fi
 
 
 %changelog
+* Mon Apr 08 2024 Tulio Magno Quites Machado Filho <tuliom@redhat.com> - 18.1.2-2
+- Rebuild LLVM 18.1.2 (RHEL-27724)
+
 * Wed Mar 27 2024 Tulio Magno Quites Machado Filho <tuliom@redhat.com> - 18.1.2-1
 - Update to LLVM 18.1.2 (RHEL-27724)
 
