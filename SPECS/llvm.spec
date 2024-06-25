@@ -99,7 +99,7 @@
 
 Name:		%{pkg_name}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	3%{?dist}
+Release:	4%{?dist}
 Summary:	The Low Level Virtual Machine
 
 License:	Apache-2.0 WITH LLVM-exception OR NCSA
@@ -632,6 +632,9 @@ fi
 
 
 %changelog
+* Mon Jun 24 2024 Troy Dawson <tdawson@redhat.com> - 18.1.2-4
+- Bump release for June 2024 mass rebuild
+
 * Fri Jun 07 2024 Zhengyu He <hezhy472013@gmail.com> - 18.1.2-3
 - Add support for riscv64
 
