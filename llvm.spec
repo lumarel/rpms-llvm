@@ -99,7 +99,7 @@
 
 Name:		%{pkg_name}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	4%{?dist}
+Release:	5%{?dist}
 Summary:	The Low Level Virtual Machine
 
 License:	Apache-2.0 WITH LLVM-exception OR NCSA
@@ -242,6 +242,17 @@ Summary: LLVM's modified googletest sources
 
 %description googletest
 LLVM's modified googletest sources.
+
+%if 0%{?rhel}
+%package toolset
+Summary:	Package that installs llvm-toolset
+Requires:	clang = %{version}
+Requires:	llvm = %{version}
+Requires:	lld = %{version}
+
+%description toolset
+This is the main package for llvm-toolset.
+%endif
 
 %prep
 %{gpgverify} --keyring='%{SOURCE6}' --signature='%{SOURCE1}' --data='%{SOURCE0}'
@@ -630,8 +641,15 @@ fi
 %{install_includedir}/llvm-gtest
 %{install_includedir}/llvm-gmock
 
+%if 0%{?rhel}
+%files toolset
+%license LICENSE.TXT
+%endif
 
 %changelog
+* Mon Jul 01 2024 Tulio Magno Quites Machado Filho <tuliom@redhat.com> - 18.1.2-5
+- Add subpackage llvm-toolset (RHEL-45729)
+
 * Mon Jun 24 2024 Troy Dawson <tdawson@redhat.com> - 18.1.2-4
 - Bump release for June 2024 mass rebuild
 
