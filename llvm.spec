@@ -22,7 +22,7 @@
 %endif
 
 %bcond_with compat_build
-%bcond_without bundle_compat_lib
+%bcond_with bundle_compat_lib
 %bcond_without check
 
 %ifarch %ix86 riscv64
