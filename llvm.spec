@@ -124,6 +124,10 @@ Source8:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat
 %endif
 %endif
 
+# Backport with modifications from
+# https://github.com/llvm/llvm-project/pull/99273
+# Fixes RHEL-49746.
+Patch001:	99273.patch
 # RHEL-specific patch to avoid unwanted python3-myst-parser dep
 Patch101:	0101-Deactivate-markdown-doc.patch
 
