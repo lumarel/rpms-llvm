@@ -42,7 +42,7 @@
 
 %global maj_ver 18
 %global min_ver 1
-%global patch_ver 2
+%global patch_ver 8
 #global rc_ver 4
 
 %if %{with snapshot_build}
@@ -99,7 +99,7 @@
 
 Name:		%{pkg_name}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	5%{?dist}
+Release:	1%{?dist}
 Summary:	The Low Level Virtual Machine
 
 License:	Apache-2.0 WITH LLVM-exception OR NCSA
@@ -651,6 +651,11 @@ fi
 %endif
 
 %changelog
+* Mon Jul 22 2024 Tulio Magno Quites Machado Filho <tuliom@redhat.com> - 18.1.8-1
+- Update to LLVM 18.1.2 (RHEL-28056)
+- Remove llvm17 compat package (RHEL-30890)
+- Workaround for GFX11.5 export priority (RHEL-49746)
+
 * Mon Jul 01 2024 Tulio Magno Quites Machado Filho <tuliom@redhat.com> - 18.1.2-5
 - Add subpackage llvm-toolset (RHEL-45729)
 
