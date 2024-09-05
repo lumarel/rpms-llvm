@@ -77,7 +77,7 @@
 %endif
 
 %if 0%{?rhel}
-%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;ARM;Mips;BPF;WebAssembly"
+%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;ARM;Mips;BPF;WebAssembly;RISCV"
 %global experimental_targets_to_build ""
 %else
 %global targets_to_build "all"
@@ -97,74 +97,74 @@
 # The executable Python scripts in /usr/share/opt-viewer/ import each other
 %undefine _py3_shebang_P
 
-Name:		%{pkg_name}
-Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	1%{?dist}
-Summary:	The Low Level Virtual Machine
+Name:                 %{pkg_name}
+Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
+Release:              1%{?dist}
+Summary:              The Low Level Virtual Machine
 
-License:	Apache-2.0 WITH LLVM-exception OR NCSA
-URL:		http://llvm.org
+License:              Apache-2.0 WITH LLVM-exception OR NCSA
+URL:                  http://llvm.org
 %if %{with snapshot_build}
-Source0:	%{llvm_snapshot_source_prefix}llvm-%{llvm_snapshot_yyyymmdd}.src.tar.xz
-Source2:	%{llvm_snapshot_source_prefix}cmake-%{llvm_snapshot_yyyymmdd}.src.tar.xz
-Source4:	%{llvm_snapshot_source_prefix}third-party-%{llvm_snapshot_yyyymmdd}.src.tar.xz
+Source0:              %{llvm_snapshot_source_prefix}llvm-%{llvm_snapshot_yyyymmdd}.src.tar.xz
+Source2:              %{llvm_snapshot_source_prefix}cmake-%{llvm_snapshot_yyyymmdd}.src.tar.xz
+Source4:              %{llvm_snapshot_source_prefix}third-party-%{llvm_snapshot_yyyymmdd}.src.tar.xz
 %{llvm_snapshot_extra_source_tags}
 %else
-Source0:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{llvm_srcdir}.tar.xz
-Source1:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{llvm_srcdir}.tar.xz.sig
-Source2:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{cmake_srcdir}.tar.xz
-Source3:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{cmake_srcdir}.tar.xz.sig
-Source4:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{third_party_srcdir}.tar.xz
-Source5:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{third_party_srcdir}.tar.xz.sig
-Source6:	release-keys.asc
+Source0:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{llvm_srcdir}.tar.xz
+Source1:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{llvm_srcdir}.tar.xz.sig
+Source2:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{cmake_srcdir}.tar.xz
+Source3:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{cmake_srcdir}.tar.xz.sig
+Source4:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{third_party_srcdir}.tar.xz
+Source5:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{third_party_srcdir}.tar.xz.sig
+Source6:              release-keys.asc
 
 %if %{with bundle_compat_lib}
-Source7:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat_ver}/llvm-%{compat_ver}.src.tar.xz
-Source8:	https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat_ver}/llvm-%{compat_ver}.src.tar.xz.sig
+Source7:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat_ver}/llvm-%{compat_ver}.src.tar.xz
+Source8:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat_ver}/llvm-%{compat_ver}.src.tar.xz.sig
 %endif
 %endif
 
 # Backport with modifications from
 # https://github.com/llvm/llvm-project/pull/99273
 # Fixes RHEL-49746.
-Patch001:	99273.patch
+Patch001:             99273.patch
 # RHEL-specific patch to avoid unwanted python3-myst-parser dep
-Patch101:	0101-Deactivate-markdown-doc.patch
+Patch101:             0101-Deactivate-markdown-doc.patch
 
-BuildRequires:	gcc
-BuildRequires:	gcc-c++
-BuildRequires:	clang
-BuildRequires:	cmake
-BuildRequires:	ninja-build
-BuildRequires:	zlib-devel
-BuildRequires:	libffi-devel
-BuildRequires:	ncurses-devel
-BuildRequires:	python3-psutil
-BuildRequires:	python3-sphinx
+BuildRequires:        gcc
+BuildRequires:        gcc-c++
+BuildRequires:        clang
+BuildRequires:        cmake
+BuildRequires:        ninja-build
+BuildRequires:        zlib-devel
+BuildRequires:        libffi-devel
+BuildRequires:        ncurses-devel
+BuildRequires:        python3-psutil
+BuildRequires:        python3-sphinx
 %if %{undefined rhel}
-BuildRequires:	python3-myst-parser
+BuildRequires:        python3-myst-parser
 %endif
-BuildRequires:	multilib-rpm-config
+BuildRequires:        multilib-rpm-config
 %if %{with gold}
-BuildRequires:	binutils-devel
+BuildRequires:        binutils-devel
 %endif
 %ifarch %{valgrind_arches}
 # Enable extra functionality when run the LLVM JIT under valgrind.
-BuildRequires:	valgrind-devel
+BuildRequires:        valgrind-devel
 %endif
 # LLVM's LineEditor library will use libedit if it is available.
-BuildRequires:	libedit-devel
+BuildRequires:        libedit-devel
 # We need python3-devel for %%py3_shebang_fix
-BuildRequires:	python3-devel
-BuildRequires:	python3-setuptools
+BuildRequires:        python3-devel
+BuildRequires:        python3-setuptools
 
 # For origin certification
-BuildRequires:	gnupg2
+BuildRequires:        gnupg2
 
 
-Requires:	%{name}-libs%{?_isa} = %{version}-%{release}
+Requires:             %{name}-libs%{?_isa} = %{version}-%{release}
 
-Provides:	llvm(major) = %{maj_ver}
+Provides:             llvm(major) = %{maj_ver}
 
 %description
 LLVM is a compiler infrastructure designed for compile-time, link-time,
@@ -173,42 +173,42 @@ languages. The compiler infrastructure includes mirror sets of programming
 tools as well as libraries with equivalent functionality.
 
 %package devel
-Summary:	Libraries and header files for LLVM
-Requires:	%{name}%{?_isa} = %{version}-%{release}
-Requires:	%{name}-libs%{?_isa} = %{version}-%{release}
+Summary:              Libraries and header files for LLVM
+Requires:             %{name}%{?_isa} = %{version}-%{release}
+Requires:             %{name}-libs%{?_isa} = %{version}-%{release}
 # The installed LLVM cmake files will add -ledit to the linker flags for any
 # app that requires the libLLVMLineEditor, so we need to make sure
 # libedit-devel is available.
-Requires:	libedit-devel
+Requires:             libedit-devel
 # The installed cmake files reference binaries from llvm-test, llvm-static, and
 # llvm-gtest.  We tried in the past to split the cmake exports for these binaries
 # out into separate files, so that llvm-devel would not need to Require these packages,
 # but this caused bugs (rhbz#1773678) and forced us to carry two non-upstream
 # patches.
-Requires:	%{name}-static%{?_isa} = %{version}-%{release}
-Requires:	%{name}-test%{?_isa} = %{version}-%{release}
-Requires:	%{name}-googletest%{?_isa} = %{version}-%{release}
+Requires:             %{name}-static%{?_isa} = %{version}-%{release}
+Requires:             %{name}-test%{?_isa} = %{version}-%{release}
+Requires:             %{name}-googletest%{?_isa} = %{version}-%{release}
 
 
 Requires(post):	%{_sbindir}/alternatives
 Requires(postun):	%{_sbindir}/alternatives
 
-Provides:	llvm-devel(major) = %{maj_ver}
+Provides:             llvm-devel(major) = %{maj_ver}
 
 %description devel
 This package contains library and header files needed to develop new native
 programs that use the LLVM infrastructure.
 
 %package doc
-Summary:	Documentation for LLVM
-BuildArch:	noarch
-Requires:	%{name} = %{version}-%{release}
+Summary:              Documentation for LLVM
+BuildArch:            noarch
+Requires:             %{name} = %{version}-%{release}
 
 %description doc
 Documentation for the LLVM compiler infrastructure.
 
 %package libs
-Summary:	LLVM shared libraries
+Summary:              LLVM shared libraries
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
 
@@ -216,43 +216,43 @@ Requires(postun): /sbin/ldconfig
 Shared libraries for the LLVM compiler infrastructure.
 
 %package static
-Summary:	LLVM static libraries
-Conflicts:	%{name}-devel < 8
+Summary:              LLVM static libraries
+Conflicts:            %{name}-devel < 8
 
-Provides:	llvm-static(major) = %{maj_ver}
+Provides:             llvm-static(major) = %{maj_ver}
 
 %description static
 Static libraries for the LLVM compiler infrastructure.
 
 %package cmake-utils
-Summary: CMake utilities shared across LLVM subprojects
+Summary:              CMake utilities shared across LLVM subprojects
 
 %description cmake-utils
 CMake utilities shared across LLVM subprojects.
 This is for internal use by LLVM packages only.
 
 %package test
-Summary:	LLVM regression tests
-Requires:	%{name}%{?_isa} = %{version}-%{release}
-Requires:	%{name}-libs%{?_isa} = %{version}-%{release}
+Summary:              LLVM regression tests
+Requires:             %{name}%{?_isa} = %{version}-%{release}
+Requires:             %{name}-libs%{?_isa} = %{version}-%{release}
 
-Provides:	llvm-test(major) = %{maj_ver}
+Provides:             llvm-test(major) = %{maj_ver}
 
 %description test
 LLVM regression tests.
 
 %package googletest
-Summary: LLVM's modified googletest sources
+Summary:              LLVM's modified googletest sources
 
 %description googletest
 LLVM's modified googletest sources.
 
 %if 0%{?rhel}
 %package toolset
-Summary:	Package that installs llvm-toolset
-Requires:	clang = %{version}
-Requires:	llvm = %{version}
-Requires:	lld = %{version}
+Summary:              Package that installs llvm-toolset
+Requires:             clang = %{version}
+Requires:             llvm = %{version}
+Requires:             lld = %{version}
 
 %description toolset
 This is the main package for llvm-toolset.
