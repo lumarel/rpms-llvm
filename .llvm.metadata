@@ -1,7 +1,5 @@
-59badef592dd34893cd319d42b323aaa990b452d05c7180ff20f23ab1b41e837 SOURCES/cmake-18.1.8.src.tar.xz
-c5623a78c55beddd836c5a1ff905aaca2fb724ebe936b173c843b59daee5646f SOURCES/cmake-18.1.8.src.tar.xz.sig
-f68cf90f369bc7d0158ba70d860b0cb34dbc163d6ff0ebc6cfa5e515b9b2e28d SOURCES/llvm-18.1.8.src.tar.xz
-f4581b556b5cb6c628211070b6edf2c669c2bea7b02cc85547810e1d696f9c07 SOURCES/llvm-18.1.8.src.tar.xz.sig
+0b58557a6d32ceee97c8d533a59b9212d87e0fc4d2833924eb6c611247db2f2a SOURCES/llvm-project-18.1.8.src.tar.xz
+f8875c5b5e01ce4a672ce48fd1559764cc91e037fa35203dbceaadeb5ad51978 SOURCES/llvm-project-18.1.8.src.tar.xz.sig
+d40e933e2a208ee142898f85d886423a217e991abbcd42dd8211f507c93e1266 SOURCES/llvm-project-19.1.1.src.tar.xz
+a981c7898dc527ca4cb46accf37c208b5b39e71d0a85675323378318762109bd SOURCES/llvm-project-19.1.1.src.tar.xz.sig
 f181a90697e3ea4b7782f1ee48314a570aef058505b4f3a0ab0611094ec13241 SOURCES/release-keys.asc
-b76b810f3d3dc5d08e83c4236cb6e395aa9bd5e3ea861e8c319b216d093db074 SOURCES/third-party-18.1.8.src.tar.xz
-344b3eafe5efb79b9b0d3acd78e8bfcdd4787899226957588e79ca3f4802b43b SOURCES/third-party-18.1.8.src.tar.xz.sig
