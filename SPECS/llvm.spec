@@ -766,6 +766,9 @@ echo "" > lldb/docs/CMakeLists.txt
 # TODO(kkleine): In clang we had this %ifarch s390 s390x aarch64 %ix86 ppc64le
 # Decrease debuginfo verbosity to reduce memory consumption during final library linking.
 %global reduce_debuginfo 0
+%ifarch riscv64
+%global reduce_debuginfo 1
+%endif
 %ifarch %ix86
 %global reduce_debuginfo 1
 %endif
@@ -773,10 +776,7 @@ echo "" > lldb/docs/CMakeLists.txt
 %global reduce_debuginfo 1
 %endif
 
-%ifarch riscv64
-%global reduce_debuginfo 1
-%endif
-if %reduce_debuginfo == 1
+%if %reduce_debuginfo == 1
 %global optflags %(echo %{optflags} | sed 's/-g /-g1 /')
 %endif
 
@@ -873,10 +873,7 @@ popd
 	-DLLVM_PARALLEL_LINK_JOBS=1 \
 	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	-DCMAKE_SKIP_RPATH:BOOL=ON \
-%ifarch riscv64
-%global reduce_debuginfo 1
-%endif
-if %reduce_debuginfo == 1
+%if %reduce_debuginfo == 1
 	-DCMAKE_C_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG" \
 	-DCMAKE_CXX_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG" \
 %endif
