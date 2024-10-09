@@ -177,7 +177,7 @@
 #region main package
 Name:                 %{pkg_name_llvm}
 Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:              1%{?dist}
+Release:              2%{?dist}
 Summary:              The Low Level Virtual Machine
 
 License:              Apache-2.0 WITH LLVM-exception OR NCSA
@@ -205,6 +205,12 @@ Source3001:           https://github.com/llvm/llvm-project/releases/download/llv
 %if %{with snapshot_build}
 Source1000:           version.spec.inc
 %endif
+
+#region LLVM patches
+%if %{maj_ver} < 20
+Patch1001:            0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
+%endif
+#endregion
 
 #region CLANG patches
 Patch2001:            0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
@@ -240,6 +246,7 @@ BuildRequires:        gcc
 BuildRequires:        gcc-c++
 BuildRequires:        clang
 BuildRequires:        cmake
+BuildRequires:        chrpath
 BuildRequires:        ninja-build
 BuildRequires:        zlib-devel
 BuildRequires:        libffi-devel
@@ -493,6 +500,13 @@ Requires:             %{pkg_name_clang}%{?_isa} = %{version}-%{release}
 # The clang CMake files reference tools from clang-tools-extra.
 Requires:             %{pkg_name_clang}-tools-extra%{?_isa} = %{version}-%{release}
 Provides:             clang-devel(major) = %{maj_ver}
+# For the clangd language server contained in this subpackage,
+# add a Provides so users can just run "dnf install clangd."
+# This Provides is only present in the primary, unversioned clang package.
+# Users who want the compat versions can install them using the full name.
+%if %{without compat_build}
+Provides:             clangd = %{version}-%{release}
+%endif
 
 %description -n %{pkg_name_clang}-devel
 Development header files for clang.
@@ -587,6 +601,8 @@ URL:                  http://openmp.llvm.org
 
 Requires:             elfutils-libelf%{?isa}
 
+Provides:             libomp(major) = %{maj_ver}
+
 %description -n %{pkg_name_libomp}
 OpenMP runtime for clang.
 
@@ -597,6 +613,8 @@ URL:                  http://openmp.llvm.org
 
 Requires:             %{name}%{?isa} = %{version}-%{release}
 Requires:             clang-resource-filesystem%{?isa} = %{version}
+
+Provides:             libomp-devel(major) = %{maj_ver}
 
 %description  -n %{pkg_name_libomp}-devel
 OpenMP header files.
@@ -800,8 +818,6 @@ export ASMFLAGS="%{build_cflags}"
 %define _find_debuginfo_dwz_opts %{nil}
 %endif
 
-export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:`pwd`/%{build_libdir}"
-
 cd llvm
 
 #region LLVM lit
@@ -816,166 +832,186 @@ popd
 %undefine __cmake_in_source_build
 %endif
 
-# TODO(kkleine): Follow more closely the Distribution guidelines found here: https://llvm.org/docs/BuildingADistribution.html
-# force off shared libs as cmake macros turns it on.
-%cmake	-G Ninja \
-	-DLLVM_ENABLE_PROJECTS="%{projects}" \
-	\
-	\
-	-DCLANG_DEFAULT_PIE_ON_LINUX=OFF \
-%if 0%{?fedora} || 0%{?rhel} > 9
-	-DPPC_LINUX_DEFAULT_IEEELONGDOUBLE=ON \
-%endif
-	-DPython3_EXECUTABLE=%{__python3} \
-	-DLLVM_INCLUDE_TESTS:BOOL=ON \
-	-DCLANG_INCLUDE_TESTS:BOOL=ON \
-	-DLLVM_BUILD_UTILS:BOOL=ON \
-	-DCLANG_ENABLE_ARCMT:BOOL=ON \
-	-DCLANG_ENABLE_STATIC_ANALYZER:BOOL=ON \
-	-DCLANG_INCLUDE_DOCS:BOOL=ON \
-	-DCLANG_PLUGIN_SUPPORT:BOOL=ON \
-	-DENABLE_LINKER_BUILD_ID:BOOL=ON \
-	-DLLVM_ENABLE_EH=ON \
-	-DCLANG_LINK_CLANG_DYLIB=ON \
-	-DCLANG_BUILD_EXAMPLES:BOOL=OFF \
-	-DCLANG_REPOSITORY_STRING="%{?dist_vendor} %{version}-%{release}" \
+#region cmake options
+%global cmake_config_args ""
+
+#region clang options
+%global cmake_config_args %{cmake_config_args} \\\
+	-DCLANG_BUILD_EXAMPLES:BOOL=OFF \\\
+	-DCLANG_CONFIG_FILE_SYSTEM_DIR=%{_sysconfdir}/%{pkg_name_clang}/ \\\
+	-DCLANG_DEFAULT_PIE_ON_LINUX=OFF \\\
+	-DCLANG_DEFAULT_UNWINDLIB=libgcc \\\
+	-DCLANG_ENABLE_ARCMT:BOOL=ON \\\
+	-DCLANG_ENABLE_STATIC_ANALYZER:BOOL=ON \\\
+	-DCLANG_INCLUDE_DOCS:BOOL=ON \\\
+	-DCLANG_INCLUDE_TESTS:BOOL=ON \\\
+	-DCLANG_LINK_CLANG_DYLIB=ON \\\
+	-DCLANG_PLUGIN_SUPPORT:BOOL=ON \\\
+	-DCLANG_REPOSITORY_STRING="%{?dist_vendor} %{version}-%{release}" \\\
+	-DLLVM_EXTERNAL_CLANG_TOOLS_EXTRA_SOURCE_DIR=../clang-tools-extra
 %if %{with compat_build}
-	-DCLANG_RESOURCE_DIR=../../../lib/clang/%{maj_ver} \
+	%global cmake_config_args %{cmake_config_args} -DCLANG_RESOURCE_DIR=../../../lib/clang/%{maj_ver}
 %else
-	-DCLANG_RESOURCE_DIR=../lib/clang/%{maj_ver} \
+	%global cmake_config_args %{cmake_config_args} -DCLANG_RESOURCE_DIR=../lib/clang/%{maj_ver}
 %endif
-	-DLLVM_EXTERNAL_CLANG_TOOLS_EXTRA_SOURCE_DIR=../clang-tools-extra \
-	-DCLANG_CONFIG_FILE_SYSTEM_DIR=%{_sysconfdir}/%{pkg_name_clang}/ \
-	-DCLANG_DEFAULT_UNWINDLIB=libgcc \
-	\
-	\
-	\
-	\
--DLLVM_ENABLE_RUNTIMES="compiler-rt;openmp;offload" \
-	\
-	\
-	\
-	\
-	\
-	-DCOMPILER_RT_INSTALL_PATH=%{_prefix}/lib/clang/%{maj_ver} \
-	-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
-	-DCOMPILER_RT_INCLUDE_TESTS:BOOL=OFF \
-	\
-	\
-	\
-	\
-	\
-	-DLIBOMP_INSTALL_ALIASES=OFF \
-	-DOPENMP_INSTALL_LIBDIR=%{unprefixed_libdir} \
-	-DOFFLOAD_INSTALL_LIBDIR=%{unprefixed_libdir} \
-	\
-	\
-	\
-	\
-	-DBUILD_SHARED_LIBS:BOOL=OFF \
-	-DLLVM_PARALLEL_LINK_JOBS=1 \
-	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
-	-DCMAKE_SKIP_RPATH:BOOL=ON \
-%if %reduce_debuginfo == 1
-	-DCMAKE_C_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG" \
-	-DCMAKE_CXX_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG" \
-%endif
-%if %{without compat_build}
-%if 0%{?__isa_bits} == 64
-	-DLLVM_LIBDIR_SUFFIX=64 \
-%else
-	-DLLVM_LIBDIR_SUFFIX= \
-%endif
-%endif
-	\
-	-DLLVM_TARGETS_TO_BUILD=%{targets_to_build} \
-	-DLLVM_ENABLE_LIBCXX:BOOL=OFF \
-	-DLLVM_ENABLE_ZLIB:BOOL=ON \
-	-DLLVM_ENABLE_FFI:BOOL=ON \
-	-DLLVM_ENABLE_RTTI:BOOL=ON \
-	-DLLVM_USE_PERF:BOOL=ON \
-%if %{with gold}
-	-DLLVM_BINUTILS_INCDIR=%{_includedir} \
-%endif
-	-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=%{experimental_targets_to_build} \
-	\
-	-DLLVM_BUILD_RUNTIME:BOOL=ON \
-	\
-	-DLLVM_INCLUDE_TOOLS:BOOL=ON \
-	-DLLVM_BUILD_TOOLS:BOOL=ON \
-	\
-	-DLLVM_BUILD_TESTS:BOOL=ON \
-	-DLLVM_INSTALL_GTEST:BOOL=ON \
-	-DLLVM_LIT_ARGS="-vv" \
-	\
-	-DLLVM_INCLUDE_EXAMPLES:BOOL=ON \
-	-DLLVM_BUILD_EXAMPLES:BOOL=OFF \
-	\
-	-DLLVM_INCLUDE_UTILS:BOOL=ON \
-	-DLLVM_INSTALL_UTILS:BOOL=ON \
-	-DLLVM_UTILS_INSTALL_DIR:PATH=bin \
-	-DLLVM_TOOLS_INSTALL_DIR:PATH=bin \
-	\
-	-DLLVM_INCLUDE_DOCS:BOOL=ON \
-	-DLLVM_BUILD_DOCS:BOOL=ON \
-	-DLLVM_ENABLE_SPHINX:BOOL=ON \
-	-DLLVM_ENABLE_DOXYGEN:BOOL=OFF \
-	-DLLVM_APPEND_VC_REV:BOOL=OFF \
-	\
-%if %{with snapshot_build}
-	-DLLVM_VERSION_SUFFIX="%{llvm_snapshot_version_suffix}" \
-%else
-%if %{without compat_build}
-	-DLLVM_VERSION_SUFFIX='' \
-%endif
-%endif
-	-DLLVM_UNREACHABLE_OPTIMIZE:BOOL=OFF \
-	-DLLVM_BUILD_LLVM_DYLIB:BOOL=ON \
-	-DLLVM_LINK_LLVM_DYLIB:BOOL=ON \
-	-DLLVM_BUILD_EXTERNAL_COMPILER_RT:BOOL=ON \
-	-DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=OFF \
-	-DLLVM_DEFAULT_TARGET_TRIPLE=%{llvm_triple} \
-	-DSPHINX_WARNINGS_AS_ERRORS=OFF \
-	-DCMAKE_INSTALL_PREFIX=%{install_prefix} \
-	-DLLVM_INSTALL_SPHINX_HTML_DIR=%{_pkgdocdir}/html \
-	-DSPHINX_EXECUTABLE=%{_bindir}/sphinx-build-3 \
-	-DLLVM_INCLUDE_BENCHMARKS=OFF \
-	\
-	\
-	-DLLVM_DYLIB_COMPONENTS="all" \
-	-DLLVM_COMMON_CMAKE_UTILS=%{install_datadir}/llvm/cmake \
-	\
-	\
-	\
+#endregion clang options
+
+#region compiler-rt options
+%global cmake_config_args %{cmake_config_args} \\\
+	-DCOMPILER_RT_INCLUDE_TESTS:BOOL=OFF \\\
+	-DCOMPILER_RT_INSTALL_PATH=%{_prefix}/lib/clang/%{maj_ver}
+#endregion compiler-rt options
+
+#region docs options
+%global cmake_config_args %{cmake_config_args} \\\
+	-DLLVM_BUILD_DOCS:BOOL=ON \\\
+	-DLLVM_ENABLE_SPHINX:BOOL=ON \\\
+	-DSPHINX_EXECUTABLE=%{_bindir}/sphinx-build-3 \\\
+	-DSPHINX_WARNINGS_AS_ERRORS=OFF \\\
+	-DLLVM_ENABLE_DOXYGEN:BOOL=OFF \\\
+	-DLLVM_INCLUDE_DOCS:BOOL=ON \\\
+	-DLLVM_INSTALL_SPHINX_HTML_DIR=%{_pkgdocdir}/html
+#endregion docs options
+
+#region lldb options
 %if %{with lldb}
-	-DLLDB_DISABLE_CURSES:BOOL=OFF \
-	-DLLDB_DISABLE_LIBEDIT:BOOL=OFF \
-	-DLLDB_DISABLE_PYTHON:BOOL=OFF \
+	%global cmake_config_args %{cmake_config_args} -DLLDB_DISABLE_CURSES:BOOL=OFF
+	%global cmake_config_args %{cmake_config_args} -DLLDB_DISABLE_LIBEDIT:BOOL=OFF
+	%global cmake_config_args %{cmake_config_args} -DLLDB_DISABLE_PYTHON:BOOL=OFF
 %ifarch ppc64le
-	-DLLDB_TEST_USER_ARGS=--skip-category=watchpoint \
+	%global cmake_config_args %{cmake_config_args} -DLLDB_TEST_USER_ARGS=--skip-category=watchpoint
 %endif
 %if 0%{?rhel} == 8
-	-DLLDB_INCLUDE_TESTS:BOOL=OFF \
+	%global cmake_config_args %{cmake_config_args} -DLLDB_INCLUDE_TESTS:BOOL=OFF
 %else
-	-DLLDB_ENFORCE_STRICT_TEST_REQUIREMENTS:BOOL=ON \
+	%global cmake_config_args %{cmake_config_args} -DLLDB_ENFORCE_STRICT_TEST_REQUIREMENTS:BOOL=ON
 %endif
 %endif
-	\
-	\
-	\
-%ifarch x86_64
-	-DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS -Wl,-z,cet-report=error" \
-%endif
-%if 0%{?rhel} == 8
-	-DLLVM_RAM_PER_COMPILE_JOB=2048 \
-%endif
+#endregion lldb options
+
+#region llvm options
+%global cmake_config_args %{cmake_config_args}  \\\
+	-DLLVM_APPEND_VC_REV:BOOL=OFF \\\
+	-DLLVM_BUILD_EXAMPLES:BOOL=OFF \\\
+	-DLLVM_BUILD_EXTERNAL_COMPILER_RT:BOOL=ON \\\
+	-DLLVM_BUILD_LLVM_DYLIB:BOOL=ON \\\
+	-DLLVM_BUILD_RUNTIME:BOOL=ON \\\
+	-DLLVM_BUILD_TOOLS:BOOL=ON \\\
+	-DLLVM_BUILD_UTILS:BOOL=ON \\\
+	-DLLVM_COMMON_CMAKE_UTILS=%{install_datadir}/llvm/cmake \\\
+	-DLLVM_DEFAULT_TARGET_TRIPLE=%{llvm_triple} \\\
+	-DLLVM_DYLIB_COMPONENTS="all" \\\
+	-DLLVM_ENABLE_EH=ON \\\
+	-DLLVM_ENABLE_FFI:BOOL=ON \\\
+	-DLLVM_ENABLE_LIBCXX:BOOL=OFF \\\
+	-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \\\
+	-DLLVM_ENABLE_PROJECTS="%{projects}" \\\
+	-DLLVM_ENABLE_RTTI:BOOL=ON \\\
+	-DLLVM_ENABLE_RUNTIMES="compiler-rt;openmp;offload" \\\
+	-DLLVM_ENABLE_ZLIB:BOOL=ON \\\
+	-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=%{experimental_targets_to_build} \\\
+	-DLLVM_INCLUDE_BENCHMARKS=OFF \\\
+	-DLLVM_INCLUDE_EXAMPLES:BOOL=ON \\\
+	-DLLVM_INCLUDE_TOOLS:BOOL=ON \\\
+	-DLLVM_INCLUDE_UTILS:BOOL=ON \\\
+	-DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=OFF \\\
+	-DLLVM_INSTALL_UTILS:BOOL=ON \\\
+	-DLLVM_LINK_LLVM_DYLIB:BOOL=ON \\\
+	-DLLVM_PARALLEL_LINK_JOBS=1 \\\
+	-DLLVM_TARGETS_TO_BUILD=%{targets_to_build} \\\
+	-DLLVM_TOOLS_INSTALL_DIR:PATH=bin \\\
+	-DLLVM_UNREACHABLE_OPTIMIZE:BOOL=OFF \\\
+	-DLLVM_USE_PERF:BOOL=ON \\\
+	-DLLVM_UTILS_INSTALL_DIR:PATH=bin
+#endregion llvm options
+
+#region openmp options
+%global cmake_config_args %{cmake_config_args} \\\
+	-DOPENMP_INSTALL_LIBDIR=%{unprefixed_libdir} \\\
+	-DLIBOMP_INSTALL_ALIASES=OFF
+#endregion openmp options
+
+#region test options
+%global cmake_config_args %{cmake_config_args} \\\
+	-DLLVM_BUILD_TESTS:BOOL=ON \\\
+	-DLLVM_INCLUDE_TESTS:BOOL=ON \\\
+	-DLLVM_INSTALL_GTEST:BOOL=ON \\\
+	-DLLVM_LIT_ARGS="-vv"
+
 %if %{with lto_build}
 %if 0%{?fedora} >= 41
-	-DLLVM_UNITTEST_LINK_FLAGS="-fno-lto"
+	%global cmake_config_args %{cmake_config_args} -DLLVM_UNITTEST_LINK_FLAGS="-fno-lto"
 %else
-	-DLLVM_UNITTEST_LINK_FLAGS="-Wl,-plugin-opt=O0"
+	%global cmake_config_args %{cmake_config_args} -DLLVM_UNITTEST_LINK_FLAGS="-Wl,-plugin-opt=O0"
 %endif
 %endif
+#endregion test options
+
+#region misc options
+%global cmake_config_args %{cmake_config_args} \\\
+	-DBUILD_SHARED_LIBS:BOOL=OFF \\\
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo \\\
+	-DCMAKE_INSTALL_PREFIX=%{install_prefix} \\\
+	-DENABLE_LINKER_BUILD_ID:BOOL=ON \\\
+	-DOFFLOAD_INSTALL_LIBDIR=%{unprefixed_libdir} \\\
+	-DPython3_EXECUTABLE=%{__python3}
+
+# During the build, we use both the system clang and the just-built clang, and
+# they need to use the system and just-built shared objects respectively. If
+# we use LD_LIBRARY_PATH to point to our build directory, the system clang
+# may use the just-built shared objects instead, which may not be compatible
+# even if the version matches (e.g. when building compat libs or different rcs).
+# Instead, we make use of rpath during the build and only strip it on
+# installation using the CMAKE_SKIP_INSTALL_RPATH option.
+%global cmake_config_args %{cmake_config_args} -DCMAKE_SKIP_INSTALL_RPATH:BOOL=ON
+
+%if 0%{?fedora} || 0%{?rhel} > 9
+	%global cmake_config_args %{cmake_config_args} -DPPC_LINUX_DEFAULT_IEEELONGDOUBLE=ON
+%endif
+
+%if %reduce_debuginfo == 1
+	%global cmake_config_args %{cmake_config_args} -DCMAKE_C_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG"
+	%global cmake_config_args %{cmake_config_args} -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG"
+%endif
+
+%if %{without compat_build}
+%if 0%{?__isa_bits} == 64
+	%global cmake_config_args %{cmake_config_args} -DLLVM_LIBDIR_SUFFIX=64
+%else
+	%global cmake_config_args %{cmake_config_args} -DLLVM_LIBDIR_SUFFIX=
+%endif
+%endif
+
+%if %{with gold}
+	%global cmake_config_args %{cmake_config_args} -DLLVM_BINUTILS_INCDIR=%{_includedir}
+%endif
+
+%if %{with snapshot_build}
+	%global cmake_config_args %{cmake_config_args} -DLLVM_VERSION_SUFFIX="%{llvm_snapshot_version_suffix}"
+%else
+%if %{without compat_build}
+	%global cmake_config_args %{cmake_config_args} -DLLVM_VERSION_SUFFIX=''
+%endif
+%endif
+
+%ifarch x86_64
+	%global cmake_config_args %{cmake_config_args} -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS -Wl,-z,cet-report=error"
+%endif
+
+%if 0%{?rhel} == 8
+	%global cmake_config_args %{cmake_config_args} -DLLVM_RAM_PER_COMPILE_JOB=2048
+%endif
+#endregion misc options
+
+extra_cmake_args=''
+# TSan does not support 5-level page tables (https://github.com/llvm/llvm-project/issues/111492)
+# so do not run tests using tsan on systems that potentially use 5-level page tables.
+if grep 'flags.*la57' /proc/cpuinfo; then
+  extra_cmake_args="$extra_cmake_args -DOPENMP_TEST_ENABLE_TSAN=OFF"
+fi
+#endregion cmake options
+
+%cmake -G Ninja %cmake_config_args $extra_cmake_args
 
 # Build libLLVM.so first.  This ensures that when libLLVM.so is linking, there
 # are no other compile jobs running.  This will help reduce OOM errors on the
@@ -1049,6 +1085,7 @@ mkdir -p %{buildroot}/%{_bindir}
 for f in %{test_binaries}
 do
     install -m 0755 llvm/%{_vpath_builddir}/bin/$f %{buildroot}%{install_bindir}
+    chrpath --delete %{buildroot}%{install_bindir}/$f
 done
 
 # Install libraries needed for unittests
@@ -2339,6 +2376,9 @@ fi
 
 #region changelog
 %changelog
+* Wed Oct 09 2024 Nikita Popov <npopov@redhat.com> - 19.1.1-2
+- Fix build on some brew builders
+
 * Wed Oct 02 2024 Nikita Popov <npopov@redhat.com> - 19.1.1-1
 - Update to LLVM 19.1.1
 
