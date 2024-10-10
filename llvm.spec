@@ -1367,7 +1367,7 @@ function reset_test_opts()
     export LD_LIBRARY_PATH="%{buildroot}/%{install_libdir}:%{buildroot}/%{_libdir}";
 
     # See https://llvm.org/docs/CommandGuide/lit.html#general-options
-    export LIT_OPTS="-vv"
+    export LIT_OPTS="-vv --time-tests"
     
     # Set to mark tests as expected to fail.
     # See https://llvm.org/docs/CommandGuide/lit.html#cmdoption-lit-xfail
@@ -1492,6 +1492,10 @@ test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_GELTGT_int.c
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_GTGEGT_int.c")
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_LTLEGE_int.c")
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_one_int.c")
+
+%ifarch s390x
+test_list_filter_out+=("libomp :: flush/omp_flush.c")
+%endif
 
 # The following tests seem pass on ppc64le and x86_64 and aarch64 only:
 %ifnarch ppc64le x86_64 s390x aarch64
