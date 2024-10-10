@@ -177,7 +177,7 @@
 #region main package
 Name:		%{pkg_name_llvm}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	2%{?dist}
+Release:	3%{?dist}
 Summary:	The Low Level Virtual Machine
 
 License:	Apache-2.0 WITH LLVM-exception OR NCSA
@@ -206,11 +206,12 @@ Source3001: https://github.com/llvm/llvm-project/releases/download/llvmorg-%{com
 Source1000: version.spec.inc
 %endif
 
-#region LLVM patches
+#region OpenMP patches
 %if %{maj_ver} < 20
 Patch1001: 0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
+Patch1002: 0001-openmp-Use-core_siblings_list-if-physical_package_id.patch
 %endif
-#endregion
+#endregion OpenMP patches
 
 #region CLANG patches
 Patch2001: 0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
@@ -2370,6 +2371,9 @@ fi
 
 #region changelog
 %changelog
+* Thu Oct 10 2024 Nikita Popov <npopov@redhat.com> - 19.1.1-3
+- Backport ppc openmp patch
+
 * Wed Oct 09 2024 Nikita Popov <npopov@redhat.com> - 19.1.1-2
 - Fix build on some brew builders
 
