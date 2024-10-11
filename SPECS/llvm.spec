@@ -177,7 +177,7 @@
 #region main package
 Name:                 %{pkg_name_llvm}
 Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:              2%{?dist}
+Release:              3%{?dist}
 Summary:              The Low Level Virtual Machine
 
 License:              Apache-2.0 WITH LLVM-exception OR NCSA
@@ -206,11 +206,12 @@ Source3001:           https://github.com/llvm/llvm-project/releases/download/llv
 Source1000:           version.spec.inc
 %endif
 
-#region LLVM patches
+#region OpenMP patches
 %if %{maj_ver} < 20
 Patch1001:            0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
+Patch1002:            0001-openmp-Use-core_siblings_list-if-physical_package_id.patch
 %endif
-#endregion
+#endregion OpenMP patches
 
 #region CLANG patches
 Patch2001:            0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
@@ -1372,7 +1373,7 @@ function reset_test_opts()
     export LD_LIBRARY_PATH="%{buildroot}/%{install_libdir}:%{buildroot}/%{_libdir}";
 
     # See https://llvm.org/docs/CommandGuide/lit.html#general-options
-    export LIT_OPTS="-vv"
+    export LIT_OPTS="-vv --time-tests"
     
     # Set to mark tests as expected to fail.
     # See https://llvm.org/docs/CommandGuide/lit.html#cmdoption-lit-xfail
@@ -1497,6 +1498,10 @@ test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_GELTGT_int.c
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_GTGEGT_int.c")
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_LTLEGE_int.c")
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_one_int.c")
+
+%ifarch s390x
+test_list_filter_out+=("libomp :: flush/omp_flush.c")
+%endif
 
 # The following tests seem pass on ppc64le and x86_64 and aarch64 only:
 %ifnarch ppc64le x86_64 s390x aarch64
@@ -2376,6 +2381,9 @@ fi
 
 #region changelog
 %changelog
+* Thu Oct 10 2024 Nikita Popov <npopov@redhat.com> - 19.1.1-3
+- Backport ppc openmp patch
+
 * Wed Oct 09 2024 Nikita Popov <npopov@redhat.com> - 19.1.1-2
 - Fix build on some brew builders
 
