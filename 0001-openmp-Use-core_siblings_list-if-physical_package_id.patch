@@ -1,4 +1,4 @@
-From c4cedb269c5dd82bb5d1c7a3cd24b74b1c8ea1f7 Mon Sep 17 00:00:00 2001
+From 5fb4d7f6079a76b2907ccc8c53c7c509c30a3dca Mon Sep 17 00:00:00 2001
 From: Nikita Popov <npopov@redhat.com>
 Date: Thu, 10 Oct 2024 12:47:33 +0000
 Subject: [PATCH] [openmp] Use core_siblings_list if physical_package_id not
@@ -15,12 +15,12 @@ exists.
 
 Fixes https://github.com/llvm/llvm-project/issues/111809.
 ---
- openmp/runtime/src/kmp_affinity.cpp          | 93 ++++++++++++++------
- openmp/runtime/test/affinity/kmp-hw-subset.c |  2 +-
- 2 files changed, 65 insertions(+), 30 deletions(-)
+ openmp/runtime/src/kmp_affinity.cpp          | 100 +++++++++++++------
+ openmp/runtime/test/affinity/kmp-hw-subset.c |   2 +-
+ 2 files changed, 72 insertions(+), 30 deletions(-)
 
 diff --git a/openmp/runtime/src/kmp_affinity.cpp b/openmp/runtime/src/kmp_affinity.cpp
-index cf5cad04eb57..d4de84381217 100644
+index cf5cad04eb57..c3d5ecf1345e 100644
 --- a/openmp/runtime/src/kmp_affinity.cpp
 +++ b/openmp/runtime/src/kmp_affinity.cpp
 @@ -1589,15 +1589,13 @@ kmp_str_buf_t *__kmp_affinity_str_buf_mask(kmp_str_buf_t *buf,
@@ -109,19 +109,25 @@ index cf5cad04eb57..d4de84381217 100644
  }
  
  // Return the number of available procs
-@@ -3175,6 +3179,30 @@ static inline const char *__kmp_cpuinfo_get_envvar() {
+@@ -3175,6 +3179,37 @@ static inline const char *__kmp_cpuinfo_get_envvar() {
    return envvar;
  }
  
-+static bool __kmp_package_id_from_core_sibling_list(unsigned **threadInfo,
-+                                                    unsigned idx) {
++static bool __kmp_package_id_from_core_siblings_list(unsigned **threadInfo,
++                                                     unsigned num_avail,
++                                                     unsigned idx) {
++  if (!KMP_AFFINITY_CAPABLE())
++    return false;
++
 +  char path[256];
 +  KMP_SNPRINTF(path, sizeof(path),
 +               "/sys/devices/system/cpu/cpu%u/topology/core_siblings_list",
 +               threadInfo[idx][osIdIndex]);
 +  kmp_affin_mask_t *siblings = __kmp_parse_cpu_list(path);
-+  for (unsigned i = 0; i < __kmp_xproc; ++i) {
-+    if (!KMP_CPU_ISSET(i, siblings))
++  for (unsigned i = 0; i < num_avail; ++i) {
++    unsigned cpu_id = threadInfo[i][osIdIndex];
++    KMP_ASSERT(cpu_id < __kmp_affin_mask_size * CHAR_BIT);
++    if (!KMP_CPU_ISSET(cpu_id, siblings))
 +      continue;
 +    if (threadInfo[i][pkgIdIndex] == UINT_MAX) {
 +      // Arbitrarily pick the first index we encounter, it only matters that
@@ -133,6 +139,7 @@ index cf5cad04eb57..d4de84381217 100644
 +      return false;
 +    }
 +  }
++  KMP_ASSERT(threadInfo[idx][pkgIdIndex] != UINT_MAX);
 +  KMP_CPU_FREE(siblings);
 +  return true;
 +}
@@ -140,7 +147,7 @@ index cf5cad04eb57..d4de84381217 100644
  // Parse /proc/cpuinfo (or an alternate file in the same format) to obtain the
  // affinity map. On AIX, the map is obtained through system SRAD (Scheduler
  // Resource Allocation Domain).
-@@ -3550,18 +3578,13 @@ static bool __kmp_affinity_create_cpuinfo_map(int *line,
+@@ -3550,18 +3585,13 @@ static bool __kmp_affinity_create_cpuinfo_map(int *line,
          return false;
        }
  
@@ -161,15 +168,15 @@ index cf5cad04eb57..d4de84381217 100644
  
        // Skip this proc if it is not included in the machine model.
        if (KMP_AFFINITY_CAPABLE() &&
-@@ -3591,6 +3614,18 @@ static bool __kmp_affinity_create_cpuinfo_map(int *line,
+@@ -3591,6 +3621,18 @@ static bool __kmp_affinity_create_cpuinfo_map(int *line,
    }
    *line = 0;
  
 +  // At least on powerpc, Linux may return -1 for physical_package_id. Try
-+  // to reconstruct topology from core_sibling_list in that case.
++  // to reconstruct topology from core_siblings_list in that case.
 +  for (i = 0; i < num_avail; ++i) {
 +    if (threadInfo[i][pkgIdIndex] == UINT_MAX) {
-+      if (!__kmp_package_id_from_core_sibling_list(threadInfo, i)) {
++      if (!__kmp_package_id_from_core_siblings_list(threadInfo, num_avail, i)) {
 +        CLEANUP_THREAD_INFO;
 +        *msg_id = kmp_i18n_str_MissingPhysicalIDField;
 +        return false;
@@ -194,5 +201,5 @@ index 606fcdfbada9..0b49969bd3b1 100644
    if (openmp_places->num_places != expected_total) {
      fprintf(stderr, "error: KMP_HW_SUBSET did not half each resource layer!\n");
 -- 
-2.46.0
+2.47.0
 
