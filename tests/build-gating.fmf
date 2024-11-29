@@ -50,7 +50,7 @@ adjust:
 discover:
   - name: llvm-tests
     how: fmf
-    url: https://src.fedoraproject.org/tests/llvm.git
+    url: https://gitlab.com/redhat/centos-stream/tests/llvm.git
     ref: main
 execute:
     how: tmt
