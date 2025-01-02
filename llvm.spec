@@ -78,13 +78,8 @@
 %global exec_suffix %{nil}
 %endif
 
-%if 0%{?rhel}
-%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;ARM;Mips;BPF;WebAssembly"
-%global experimental_targets_to_build ""
-%else
 %global targets_to_build "all"
 %global experimental_targets_to_build "AVR"
-%endif
 
 %global build_install_prefix %{buildroot}%{install_prefix}
 
@@ -101,7 +96,7 @@
 
 Name:		%{pkg_name}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	3%{?dist}
+Release:	3.full%{?dist}
 Summary:	The Low Level Virtual Machine
 
 License:	Apache-2.0 WITH LLVM-exception OR NCSA
@@ -651,11 +646,6 @@ fi
 %{install_libdir}/libllvm_gtest_main.a
 %{install_includedir}/llvm-gtest
 %{install_includedir}/llvm-gmock
-
-
-
-%files toolset
-%license LICENSE.TXT
 
 %changelog
 * Thu Aug 15 2024 Konrad Kleine <kkleine@redhat.com> - 18.1.8-3
