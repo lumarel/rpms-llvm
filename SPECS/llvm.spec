@@ -107,7 +107,7 @@
 %endif
 
 %if 0%{?rhel}
-%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;ARM;Mips;BPF;WebAssembly"
+%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;ARM;Mips;BPF;WebAssembly;RISCV"
 %global experimental_targets_to_build ""
 %else
 %global targets_to_build "all"
@@ -180,35 +180,35 @@
 
 #region packages
 #region main package
-Name:		%{pkg_name_llvm}
-Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:	1%{?dist}
-Summary:	The Low Level Virtual Machine
+Name:                 %{pkg_name_llvm}
+Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
+Release:              1%{?dist}
+Summary:              The Low Level Virtual Machine
 
-License:	Apache-2.0 WITH LLVM-exception OR NCSA
-URL:		http://llvm.org
+License:              Apache-2.0 WITH LLVM-exception OR NCSA
+URL:                  http://llvm.org
 
 %if %{with snapshot_build}
-Source0: https://github.com/llvm/llvm-project/archive/%{llvm_snapshot_git_revision}.tar.gz
+Source0:              https://github.com/llvm/llvm-project/archive/%{llvm_snapshot_git_revision}.tar.gz
 %else
-Source0: https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{src_tarball_dir}.tar.xz
-Source1: https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{src_tarball_dir}.tar.xz.sig
+Source0:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{src_tarball_dir}.tar.xz
+Source1:              https://github.com/llvm/llvm-project/releases/download/llvmorg-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}/%{src_tarball_dir}.tar.xz.sig
 %endif
-Source6: release-keys.asc
+Source6:              release-keys.asc
 
 %if %{without compat_build}
-Source2005: macros.%{pkg_name_clang}
+Source2005:           macros.%{pkg_name_clang}
 %endif
 
 %if %{with bundle_compat_lib}
-Source3000: https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat_ver}/llvm-project-%{compat_ver}.src.tar.xz
-Source3001: https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat_ver}/llvm-project-%{compat_ver}.src.tar.xz.sig
+Source3000:           https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat_ver}/llvm-project-%{compat_ver}.src.tar.xz
+Source3001:           https://github.com/llvm/llvm-project/releases/download/llvmorg-%{compat_ver}/llvm-project-%{compat_ver}.src.tar.xz.sig
 %endif
 
 # Sources we use to split up the main spec file in sections so that we can more
 # easily see what specfile sections are touched by a patch.
 %if %{with snapshot_build}
-Source1000: version.spec.inc
+Source1000:           version.spec.inc
 %endif
 
 # We've established the habit of numbering patches the following way:
@@ -237,43 +237,43 @@ Source1000: version.spec.inc
 # behind the latest packaged LLVM version.
 
 #region OpenMP patches
-Patch1900: 0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
-Patch1901: 0001-openmp-Use-core_siblings_list-if-physical_package_id.patch
+Patch1900:            0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
+Patch1901:            0001-openmp-Use-core_siblings_list-if-physical_package_id.patch
 #endregion OpenMP patches
 
 #region CLANG patches
-Patch101: 0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
-Patch102: 0003-PATCH-clang-Don-t-install-static-libraries.patch
+Patch101:             0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
+Patch102:             0003-PATCH-clang-Don-t-install-static-libraries.patch
 #endregion CLANG patches
 
 # Workaround a bug in ORC on ppc64le.
 # More info is available here: https://reviews.llvm.org/D159115#4641826
-Patch103: 0001-Workaround-a-bug-in-ORC-on-ppc64le.patch
+Patch103:             0001-Workaround-a-bug-in-ORC-on-ppc64le.patch
 
 # With the introduction of --gcc-include-dir in the clang config file,
 # this might no longer be needed.
-Patch104: 0001-Driver-Give-devtoolset-path-precedence-over-Installe.patch
+Patch104:             0001-Driver-Give-devtoolset-path-precedence-over-Installe.patch
 
 #region LLD patches
-Patch1800: 0001-18-Always-build-shared-libs-for-LLD.patch
-Patch1902: 0001-19-Always-build-shared-libs-for-LLD.patch
-Patch2000: 0001-19-Always-build-shared-libs-for-LLD.patch
+Patch1800:            0001-18-Always-build-shared-libs-for-LLD.patch
+Patch1902:            0001-19-Always-build-shared-libs-for-LLD.patch
+Patch2000:            0001-19-Always-build-shared-libs-for-LLD.patch
 #endregion LLD patches
 
 #region RHEL patches
 # RHEL 8 only
-Patch501: 0001-Fix-page-size-constant-on-aarch64-and-ppc64le.patch
+Patch501:             0001-Fix-page-size-constant-on-aarch64-and-ppc64le.patch
 #endregion RHEL patches
 
 # Backport with modifications from
 # https://github.com/llvm/llvm-project/pull/99273
 # Fixes RHEL-49517.
-Patch1801: 18-99273.patch
+Patch1801:            18-99273.patch
 
 # Fix profiling after a binutils NOTE change.
 # https://github.com/llvm/llvm-project/pull/114907
-Patch1802: 0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
-Patch1903: 0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
+Patch1802:            0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
+Patch1903:            0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
 
 %if 0%{?rhel} == 8
 %global python3_pkgversion 3.12
@@ -282,103 +282,103 @@ Patch1903: 0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
 
 %if %{defined gts_version}
 # Required for 64-bit atomics on i686.
-BuildRequires: gcc-toolset-%{gts_version}-libatomic-devel
+BuildRequires:        gcc-toolset-%{gts_version}-libatomic-devel
 %endif
-BuildRequires:	gcc
-BuildRequires:	gcc-c++
-BuildRequires:	clang
-BuildRequires:	cmake
-BuildRequires:	chrpath
-BuildRequires:	ninja-build
-BuildRequires:	zlib-devel
-BuildRequires:	libzstd-devel
-BuildRequires:	libffi-devel
-BuildRequires:	ncurses-devel
+BuildRequires:        gcc
+BuildRequires:        gcc-c++
+BuildRequires:        clang
+BuildRequires:        cmake
+BuildRequires:        chrpath
+BuildRequires:        ninja-build
+BuildRequires:        zlib-devel
+BuildRequires:        libzstd-devel
+BuildRequires:        libffi-devel
+BuildRequires:        ncurses-devel
 # This intentionally does not use python3_pkgversion. RHEL 8 does not have
 # python3.12-sphinx, and we are only using it as a binary anyway.
-BuildRequires:	python3-sphinx
+BuildRequires:        python3-sphinx
 %if 0%{?rhel} != 8
 # RHEL 8 does not have these packages for python3.12. However, they are only
 # needed for LLDB tests.
-BuildRequires:	python%{python3_pkgversion}-psutil
-BuildRequires:	python%{python3_pkgversion}-pexpect
+BuildRequires:        python%{python3_pkgversion}-psutil
+BuildRequires:        python%{python3_pkgversion}-pexpect
 %endif
 %if %{undefined rhel}
-BuildRequires:	python%{python3_pkgversion}-myst-parser
+BuildRequires:        python%{python3_pkgversion}-myst-parser
 %endif
 # Needed for %%multilib_fix_c_header
-BuildRequires:	multilib-rpm-config
+BuildRequires:        multilib-rpm-config
 %if %{with gold}
-BuildRequires:	binutils-devel
+BuildRequires:        binutils-devel
 %if %{undefined rhel} || 0%{?rhel} > 8
-BuildRequires:	binutils-gold
+BuildRequires:        binutils-gold
 %endif
 %endif
 %ifarch %{valgrind_arches}
 # Enable extra functionality when run the LLVM JIT under valgrind.
-BuildRequires:	valgrind-devel
+BuildRequires:        valgrind-devel
 %endif
 # LLVM's LineEditor library will use libedit if it is available.
-BuildRequires:	libedit-devel
+BuildRequires:        libedit-devel
 # We need python3-devel for %%py3_shebang_fix
-BuildRequires:	python%{python3_pkgversion}-devel
-BuildRequires:	python%{python3_pkgversion}-setuptools
+BuildRequires:        python%{python3_pkgversion}-devel
+BuildRequires:        python%{python3_pkgversion}-setuptools
 %if 0%{?rhel} == 8
-BuildRequires:	python%{python3_pkgversion}-rpm-macros
+BuildRequires:        python%{python3_pkgversion}-rpm-macros
 %endif
 
 # For gpg source verification
-BuildRequires:	gnupg2
+BuildRequires:        gnupg2
 
-BuildRequires:	swig
-BuildRequires:	libxml2-devel
-BuildRequires:	doxygen
+BuildRequires:        swig
+BuildRequires:        libxml2-devel
+BuildRequires:        doxygen
 
 # For clang-offload-packager
-BuildRequires: elfutils-libelf-devel
-BuildRequires: perl
-BuildRequires: perl-Data-Dumper
-BuildRequires: perl-Encode
-BuildRequires: libffi-devel
+BuildRequires:        elfutils-libelf-devel
+BuildRequires:        perl
+BuildRequires:        perl-Data-Dumper
+BuildRequires:        perl-Encode
+BuildRequires:        libffi-devel
 
-BuildRequires:	perl-generators
+BuildRequires:        perl-generators
 
 # According to https://fedoraproject.org/wiki/Packaging:Emacs a package
 # should BuildRequires: emacs if it packages emacs integration files.
-BuildRequires:	emacs
+BuildRequires:        emacs
 
-BuildRequires:	libatomic
+BuildRequires:        libatomic
 
 # scan-build uses these perl modules so they need to be installed in order
 # to run the tests.
-BuildRequires: perl(Digest::MD5)
-BuildRequires: perl(File::Copy)
-BuildRequires: perl(File::Find)
-BuildRequires: perl(File::Path)
-BuildRequires: perl(File::Temp)
-BuildRequires: perl(FindBin)
-BuildRequires: perl(Hash::Util)
-BuildRequires: perl(lib)
-BuildRequires: perl(Term::ANSIColor)
-BuildRequires: perl(Text::ParseWords)
-BuildRequires: perl(Sys::Hostname)
+BuildRequires:        perl(Digest::MD5)
+BuildRequires:        perl(File::Copy)
+BuildRequires:        perl(File::Find)
+BuildRequires:        perl(File::Path)
+BuildRequires:        perl(File::Temp)
+BuildRequires:        perl(FindBin)
+BuildRequires:        perl(Hash::Util)
+BuildRequires:        perl(lib)
+BuildRequires:        perl(Term::ANSIColor)
+BuildRequires:        perl(Text::ParseWords)
+BuildRequires:        perl(Sys::Hostname)
 
-BuildRequires:	graphviz
+BuildRequires:        graphviz
 
 # This is required because we need "ps" when running LLDB tests
-BuildRequires: procps-ng
+BuildRequires:        procps-ng
 
 # For reproducible pyc file generation
 # See https://docs.fedoraproject.org/en-US/packaging-guidelines/Python_Appendix/#_byte_compilation_reproducibility
 # Since Fedora 41 this happens automatically, and RHEL 8 does not support this.
 %if %{without compat_build} && ((%{defined fedora} && 0%{?fedora} < 41) || 0%{?rhel} == 9 || 0%{?rhel} == 10)
-BuildRequires: /usr/bin/marshalparser
+BuildRequires:        /usr/bin/marshalparser
 %global py_reproducible_pyc_path %{buildroot}%{python3_sitelib}
 %endif
 
-Requires:	%{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
 
-Provides:	llvm(major) = %{maj_ver}
+Provides:             llvm(major) = %{maj_ver}
 
 %description
 LLVM is a compiler infrastructure designed for compile-time, link-time,
@@ -390,16 +390,16 @@ tools as well as libraries with equivalent functionality.
 #region LLVM lit package
 %if %{with python_lit}
 %package -n python%{python3_pkgversion}-lit
-Summary: LLVM lit test runner for Python 3
+Summary:              LLVM lit test runner for Python 3
 
-BuildArch: noarch
-Requires: python%{python3_pkgversion}-setuptools
+BuildArch:            noarch
+Requires:             python%{python3_pkgversion}-setuptools
 %if 0%{?rhel} == 8
 # Became python3.12-clang in LLVM 19
-Obsoletes: python3-lit < 18.9
+Obsoletes:            python3-lit < 18.9
 %else
 # This optional dependency is not available for python3.12 on RHEL 8.
-Recommends: python%{python3_pkgversion}-psutil
+Recommends:           python%{python3_pkgversion}-psutil
 %endif
 
 %description -n python%{python3_pkgversion}-lit
@@ -410,82 +410,82 @@ lit is a tool used by the LLVM project for executing its test suites.
 #region LLVM packages
 
 %package -n %{pkg_name_llvm}-devel
-Summary:	Libraries and header files for LLVM
-Requires:	%{pkg_name_llvm}%{?_isa} = %{version}-%{release}
-Requires:	%{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
+Summary:              Libraries and header files for LLVM
+Requires:             %{pkg_name_llvm}%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
 # The installed LLVM cmake files will add -ledit to the linker flags for any
 # app that requires the libLLVMLineEditor, so we need to make sure
 # libedit-devel is available.
-Requires:	libedit-devel
-Requires:	libzstd-devel
+Requires:             libedit-devel
+Requires:             libzstd-devel
 # The installed cmake files reference binaries from llvm-test, llvm-static, and
 # llvm-gtest.  We tried in the past to split the cmake exports for these binaries
 # out into separate files, so that llvm-devel would not need to Require these packages,
 # but this caused bugs (rhbz#1773678) and forced us to carry two non-upstream
 # patches.
-Requires:	%{pkg_name_llvm}-static%{?_isa} = %{version}-%{release}
-Requires:	%{pkg_name_llvm}-test%{?_isa} = %{version}-%{release}
-Requires:	%{pkg_name_llvm}-googletest%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_llvm}-static%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_llvm}-test%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_llvm}-googletest%{?_isa} = %{version}-%{release}
 
 
 Requires(post):	%{_sbindir}/alternatives
 Requires(postun):	%{_sbindir}/alternatives
 
-Provides:	llvm-devel(major) = %{maj_ver}
+Provides:             llvm-devel(major) = %{maj_ver}
 
 %description -n %{pkg_name_llvm}-devel
 This package contains library and header files needed to develop new native
 programs that use the LLVM infrastructure.
 
 %package -n %{pkg_name_llvm}-doc
-Summary:	Documentation for LLVM
-BuildArch:	noarch
-Requires:	%{pkg_name_llvm} = %{version}-%{release}
+Summary:              Documentation for LLVM
+BuildArch:            noarch
+Requires:             %{pkg_name_llvm} = %{version}-%{release}
 
 %description -n %{pkg_name_llvm}-doc
 Documentation for the LLVM compiler infrastructure.
 
 %package -n %{pkg_name_llvm}-libs
-Summary:	LLVM shared libraries
+Summary:              LLVM shared libraries
 
 %description -n %{pkg_name_llvm}-libs
 Shared libraries for the LLVM compiler infrastructure.
 
 %package -n %{pkg_name_llvm}-static
-Summary:	LLVM static libraries
-Conflicts:	%{pkg_name_llvm}-devel < 8
+Summary:              LLVM static libraries
+Conflicts:            %{pkg_name_llvm}-devel < 8
 
-Provides:	llvm-static(major) = %{maj_ver}
+Provides:             llvm-static(major) = %{maj_ver}
 
 %description -n %{pkg_name_llvm}-static
 Static libraries for the LLVM compiler infrastructure.
 
 %package -n %{pkg_name_llvm}-cmake-utils
-Summary: CMake utilities shared across LLVM subprojects
+Summary:              CMake utilities shared across LLVM subprojects
 
 %description -n %{pkg_name_llvm}-cmake-utils
 CMake utilities shared across LLVM subprojects.
 This is for internal use by LLVM packages only.
 
 %package -n %{pkg_name_llvm}-test
-Summary:	LLVM regression tests
-Requires:	%{pkg_name_llvm}%{?_isa} = %{version}-%{release}
-Requires:	%{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
+Summary:              LLVM regression tests
+Requires:             %{pkg_name_llvm}%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
 
-Provides:	llvm-test(major) = %{maj_ver}
+Provides:             llvm-test(major) = %{maj_ver}
 
 %description -n %{pkg_name_llvm}-test
 LLVM regression tests.
 
 %package -n %{pkg_name_llvm}-googletest
-Summary: LLVM's modified googletest sources
+Summary:              LLVM's modified googletest sources
 
 %description -n %{pkg_name_llvm}-googletest
 LLVM's modified googletest sources.
 
 %if %{with snapshot_build}
 %package -n %{pkg_name_llvm}-build-stats
-Summary: Statistics for the RPM build
+Summary:              Statistics for the RPM build
 
 %description -n %{pkg_name_llvm}-build-stats
 Statistics for the RPM build. Only available in snapshot builds.
@@ -496,22 +496,22 @@ Statistics for the RPM build. Only available in snapshot builds.
 #region CLANG packages
 
 %package -n %{pkg_name_clang}
-Summary:	A C language family front-end for LLVM
+Summary:              A C language family front-end for LLVM
 
-Requires:	%{pkg_name_clang}-libs%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_clang}-libs%{?_isa} = %{version}-%{release}
 
 # clang requires gcc, clang++ requires libstdc++-devel
 # - https://bugzilla.redhat.com/show_bug.cgi?id=1021645
 # - https://bugzilla.redhat.com/show_bug.cgi?id=1158594
-Requires:	libstdc++-devel
-Requires:	gcc-c++
+Requires:             libstdc++-devel
+Requires:             gcc-c++
 
-Provides:	clang(major) = %{maj_ver}
+Provides:             clang(major) = %{maj_ver}
 
-Conflicts:	compiler-rt < 11.0.0
+Conflicts:            compiler-rt < 11.0.0
 
 %description -n %{pkg_name_clang}
-clang: noun
+clang:                noun
     1. A loud, resonant, metallic sound.
     2. The strident call of a crane or goose.
     3. C-language family front-end toolkit.
@@ -525,53 +525,53 @@ enable sanitization and profiling options when building, and
 libomp-devel to enable -fopenmp.
 
 %package -n %{pkg_name_clang}-libs
-Summary: Runtime library for clang
-Requires: %{pkg_name_clang}-resource-filesystem%{?_isa} = %{version}-%{release}
+Summary:              Runtime library for clang
+Requires:             %{pkg_name_clang}-resource-filesystem%{?_isa} = %{version}-%{release}
 %if %{defined gts_version}
-Requires: gcc-toolset-%{gts_version}-gcc-c++
+Requires:             gcc-toolset-%{gts_version}-gcc-c++
 %endif
-Recommends: %{pkg_name_compiler_rt}%{?_isa} = %{version}-%{release}
-Requires: %{pkg_name_llvm}-libs = %{version}-%{release}
+Recommends:           %{pkg_name_compiler_rt}%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_llvm}-libs = %{version}-%{release}
 # atomic support is not part of compiler-rt
-Recommends: libatomic%{?_isa}
+Recommends:           libatomic%{?_isa}
 # libomp-devel is required, so clang can find the omp.h header when compiling
 # with -fopenmp.
-Recommends: %{pkg_name_libomp}-devel%{_isa} = %{version}-%{release}
-Recommends: %{pkg_name_libomp}%{_isa} = %{version}-%{release}
+Recommends:           %{pkg_name_libomp}-devel%{_isa} = %{version}-%{release}
+Recommends:           %{pkg_name_libomp}%{_isa} = %{version}-%{release}
 
 %description -n %{pkg_name_clang}-libs
 Runtime library for clang.
 
 %package -n %{pkg_name_clang}-devel
-Summary: Development header files for clang
-Requires: %{pkg_name_clang}-libs = %{version}-%{release}
-Requires: %{pkg_name_clang}%{?_isa} = %{version}-%{release}
+Summary:              Development header files for clang
+Requires:             %{pkg_name_clang}-libs = %{version}-%{release}
+Requires:             %{pkg_name_clang}%{?_isa} = %{version}-%{release}
 # The clang CMake files reference tools from clang-tools-extra.
-Requires: %{pkg_name_clang}-tools-extra%{?_isa} = %{version}-%{release}
-Provides: clang-devel(major) = %{maj_ver}
+Requires:             %{pkg_name_clang}-tools-extra%{?_isa} = %{version}-%{release}
+Provides:             clang-devel(major) = %{maj_ver}
 # For the clangd language server contained in this subpackage,
 # add a Provides so users can just run "dnf install clangd."
 # This Provides is only present in the primary, unversioned clang package.
 # Users who want the compat versions can install them using the full name.
 %if %{without compat_build}
-Provides: clangd = %{version}-%{release}
+Provides:             clangd = %{version}-%{release}
 %endif
 
 %description -n %{pkg_name_clang}-devel
 Development header files for clang.
 
 %package -n %{pkg_name_clang}-resource-filesystem
-Summary: Filesystem package that owns the clang resource directory
-Provides: clang-resource-filesystem(major) = %{maj_ver}
+Summary:              Filesystem package that owns the clang resource directory
+Provides:             clang-resource-filesystem(major) = %{maj_ver}
 
 %description -n %{pkg_name_clang}-resource-filesystem
 This package owns the clang resouce directory: $libdir/clang/$version/
 
 %package -n %{pkg_name_clang}-analyzer
-Summary:	A source code analysis framework
-License:	Apache-2.0 WITH LLVM-exception OR NCSA OR MIT
-BuildArch:	noarch
-Requires:	%{pkg_name_clang} = %{version}-%{release}
+Summary:              A source code analysis framework
+License:              Apache-2.0 WITH LLVM-exception OR NCSA OR MIT
+BuildArch:            noarch
+Requires:             %{pkg_name_clang} = %{version}-%{release}
 
 %description -n %{pkg_name_clang}-analyzer
 The Clang Static Analyzer consists of both a source code analysis
@@ -580,16 +580,16 @@ programs. The standalone tool is invoked from the command-line, and is
 intended to run in tandem with a build of a project or code base.
 
 %package -n %{pkg_name_clang}-tools-extra
-Summary:	Extra tools for clang
-Requires:	%{pkg_name_clang}-libs%{?_isa} = %{version}-%{release}
-Requires:	emacs-filesystem
+Summary:              Extra tools for clang
+Requires:             %{pkg_name_clang}-libs%{?_isa} = %{version}-%{release}
+Requires:             emacs-filesystem
 
 %description -n %{pkg_name_clang}-tools-extra
 A set of extra tools built using Clang's tooling API.
 
 %package -n %{pkg_name_clang}-tools-extra-devel
-Summary: Development header files for clang tools
-Requires: %{pkg_name_clang}-tools-extra = %{version}-%{release}
+Summary:              Development header files for clang tools
+Requires:             %{pkg_name_clang}-tools-extra = %{version}-%{release}
 
 %description -n %{pkg_name_clang}-tools-extra-devel
 Development header files for clang tools.
@@ -598,22 +598,22 @@ Development header files for clang tools.
 # and we don't want to force users to install all those dependenices if they
 # just want clang.
 %package -n git-clang-format%{pkg_suffix}
-Summary:	Integration of clang-format for git
-Requires:	%{pkg_name_clang}-tools-extra = %{version}-%{release}
-Requires:	git
-Requires:	python%{python3_pkgversion}
+Summary:              Integration of clang-format for git
+Requires:             %{pkg_name_clang}-tools-extra = %{version}-%{release}
+Requires:             git
+Requires:             python%{python3_pkgversion}
 
 %description -n git-clang-format%{pkg_suffix}
 clang-format integration for git.
 
 %if %{without compat_build}
 %package -n python%{python3_pkgversion}-clang
-Summary:       Python3 bindings for clang
-Requires:      %{pkg_name_clang}-devel%{?_isa} = %{version}-%{release}
-Requires:      python%{python3_pkgversion}
+Summary:              Python3 bindings for clang
+Requires:             %{pkg_name_clang}-devel%{?_isa} = %{version}-%{release}
+Requires:             python%{python3_pkgversion}
 %if 0%{?rhel} == 8
 # Became python3.12-clang in LLVM 19
-Obsoletes: python3-clang < 18.9
+Obsoletes:            python3-clang < 18.9
 %endif
 %description -n python%{python3_pkgversion}-clang
 %{summary}.
@@ -626,12 +626,12 @@ Obsoletes: python3-clang < 18.9
 #region COMPILER-RT packages
 
 %package -n %{pkg_name_compiler_rt}
-Summary:	LLVM "compiler-rt" runtime libraries
+Summary:              LLVM "compiler-rt" runtime libraries
 
-License:	Apache-2.0 WITH LLVM-exception OR NCSA OR MIT
+License:              Apache-2.0 WITH LLVM-exception OR NCSA OR MIT
 
-Requires: clang-resource-filesystem%{?_isa} = %{version}-%{release}
-Provides: compiler-rt(major) = %{maj_ver}
+Requires:             clang-resource-filesystem%{?_isa} = %{version}-%{release}
+Provides:             compiler-rt(major) = %{maj_ver}
 
 %description -n %{pkg_name_compiler_rt}
 The compiler-rt project is a part of the LLVM project. It provides
@@ -644,66 +644,66 @@ instrumentation, and Blocks C language extension.
 #region OPENMP packages
 
 %package -n %{pkg_name_libomp}
-Summary: OpenMP runtime for clang
+Summary:              OpenMP runtime for clang
 
-URL: http://openmp.llvm.org
+URL:                  http://openmp.llvm.org
 
-Requires: %{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
-Requires: elfutils-libelf%{?_isa}
+Requires:             %{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
+Requires:             elfutils-libelf%{?_isa}
 
-Provides: libomp(major) = %{maj_ver}
+Provides:             libomp(major) = %{maj_ver}
 
 %description -n %{pkg_name_libomp}
 OpenMP runtime for clang.
 
 %package  -n %{pkg_name_libomp}-devel
-Summary: OpenMP header files
+Summary:              OpenMP header files
 
-URL: http://openmp.llvm.org
+URL:                  http://openmp.llvm.org
 
-Requires: %{pkg_name_libomp}%{?_isa} = %{version}-%{release}
-Requires: clang-resource-filesystem%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_libomp}%{?_isa} = %{version}-%{release}
+Requires:             clang-resource-filesystem%{?_isa} = %{version}-%{release}
 
-Provides: libomp-devel(major) = %{maj_ver}
+Provides:             libomp-devel(major) = %{maj_ver}
 
 %description  -n %{pkg_name_libomp}-devel
 OpenMP header files.
-URL: http://openmp.llvm.org
+URL:                  http://openmp.llvm.org
 
 #endregion OPENMP packages
 
 #region LLD packages
 
 %package -n %{pkg_name_lld}
-Summary:	The LLVM Linker
+Summary:              The LLVM Linker
 
 Requires(post): %{_sbindir}/update-alternatives
 Requires(preun): %{_sbindir}/update-alternatives
 
-Requires: %{pkg_name_lld}-libs = %{version}-%{release}
-Provides: lld(major) = %{maj_ver}
+Requires:             %{pkg_name_lld}-libs = %{version}-%{release}
+Provides:             lld(major) = %{maj_ver}
 
 %description -n %{pkg_name_lld}
 The LLVM project linker.
 
 %package -n %{pkg_name_lld}-devel
-Summary:	Libraries and header files for LLD
-Requires: %{pkg_name_lld}-libs%{?_isa} = %{version}-%{release}
+Summary:              Libraries and header files for LLD
+Requires:             %{pkg_name_lld}-libs%{?_isa} = %{version}-%{release}
 %if %{without compat_build}
 # lld tools are referenced in the cmake files, so we need to add lld as a
 # dependency.
-Requires: %{pkg_name_lld}%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_lld}%{?_isa} = %{version}-%{release}
 %endif
-Provides: lld-devel(major) = %{maj_ver}
+Provides:             lld-devel(major) = %{maj_ver}
 
 %description -n %{pkg_name_lld}-devel
 This package contains library and header files needed to develop new native
 programs that use the LLD infrastructure.
 
 %package -n %{pkg_name_lld}-libs
-Summary:	LLD shared libraries
+Summary:              LLD shared libraries
 
-Requires:	%{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
 
 %description -n %{pkg_name_lld}-libs
 Shared libraries for LLD.
@@ -713,10 +713,10 @@ Shared libraries for LLD.
 #region Toolset package
 %if 0%{?rhel}
 %package -n %{pkg_name_llvm}-toolset
-Summary:	Package that installs llvm-toolset
-Requires:	clang = %{version}-%{release}
-Requires:	llvm = %{version}-%{release}
-Requires:	lld = %{version}-%{release}
+Summary:              Package that installs llvm-toolset
+Requires:             clang = %{version}-%{release}
+Requires:             llvm = %{version}-%{release}
+Requires:             lld = %{version}-%{release}
 
 %description -n %{pkg_name_llvm}-toolset
 This is the main package for llvm-toolset.
@@ -726,12 +726,12 @@ This is the main package for llvm-toolset.
 #region LLDB packages
 %if %{with lldb}
 %package -n %{pkg_name_lldb}
-Summary:	Next generation high-performance debugger
-License:	Apache-2.0 WITH LLVM-exception OR NCSA
-URL:		http://lldb.llvm.org/
+Summary:              Next generation high-performance debugger
+License:              Apache-2.0 WITH LLVM-exception OR NCSA
+URL:                  http://lldb.llvm.org/
 
-Requires:	%{pkg_name_clang}-libs%{?_isa} = %{version}-%{release}
-Requires:	python%{python3_pkgversion}-lldb
+Requires:             %{pkg_name_clang}-libs%{?_isa} = %{version}-%{release}
+Requires:             python%{python3_pkgversion}-lldb
 
 %description -n %{pkg_name_lldb}
 LLDB is a next generation, high-performance debugger. It is built as a set
@@ -740,21 +740,21 @@ larger LLVM Project, such as the Clang expression parser and LLVM
 disassembler.
 
 %package -n %{pkg_name_lldb}-devel
-Summary:	Development header files for LLDB
-Requires:	%{pkg_name_lldb}%{?_isa} = %{version}-%{release}
+Summary:              Development header files for LLDB
+Requires:             %{pkg_name_lldb}%{?_isa} = %{version}-%{release}
 
 %description -n %{pkg_name_lldb}-devel
 The package contains header files for the LLDB debugger.
 
 %package -n python%{python3_pkgversion}-lldb
 %{?python_provide:%python_provide python%{python3_pkgversion}-lldb}
-Summary:	Python module for LLDB
+Summary:              Python module for LLDB
 
-Requires:	%{pkg_name_lldb}%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_lldb}%{?_isa} = %{version}-%{release}
 
 %if 0%{?rhel} == 8
 # Became python3.12-lldb in LLVM 19
-Obsoletes: python3-lldb < 18.9
+Obsoletes:            python3-lldb < 18.9
 %endif
 
 %description -n python%{python3_pkgversion}-lldb
@@ -869,6 +869,9 @@ export ASMFLAGS="%{build_cflags}"
 # We set CLANG_DEFAULT_PIE_ON_LINUX=OFF and PPC_LINUX_DEFAULT_IEEELONGDOUBLE=ON to match the
 # defaults used by Fedora's GCC.
 
+%ifarch riscv64
+%define _find_debuginfo_dwz_opts %{nil}
+%endif
 # Disable dwz on aarch64, because it takes a huge amount of time to decide not to optimize things.
 # This is copied from clang.
 %ifarch aarch64
