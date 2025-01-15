@@ -2,7 +2,7 @@
 #region version
 %global maj_ver 19
 %global min_ver 1
-%global patch_ver 1
+%global patch_ver 7
 #global rc_ver 4
 
 %bcond_with snapshot_build
@@ -24,7 +24,7 @@
 %bcond_with compat_build
 # Bundle compat libraries for a previous LLVM version, as part of llvm-libs and
 # clang-libs. Used on RHEL.
-%bcond_without bundle_compat_lib
+%bcond_with bundle_compat_lib
 %bcond_without check
 
 %if %{with bundle_compat_lib}
@@ -55,6 +55,11 @@
 # We are building with clang for faster/lower memory LTO builds.
 # See https://docs.fedoraproject.org/en-US/packaging-guidelines/#_compiler_macros
 %global toolchain clang
+
+
+%if %{defined rhel} && 0%{?rhel} < 10
+%global gts_version 14
+%endif
 
 # Opt out of https://fedoraproject.org/wiki/Changes/fno-omit-frame-pointer
 # https://bugzilla.redhat.com/show_bug.cgi?id=2158587
@@ -177,7 +182,7 @@
 #region main package
 Name:                 %{pkg_name_llvm}
 Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:              5%{?dist}
+Release:              1%{?dist}
 Summary:              The Low Level Virtual Machine
 
 License:              Apache-2.0 WITH LLVM-exception OR NCSA
@@ -206,43 +211,79 @@ Source3001:           https://github.com/llvm/llvm-project/releases/download/llv
 Source1000:           version.spec.inc
 %endif
 
+# We've established the habit of numbering patches the following way:
+#
+#   0-499: All patches that are unconditionally applied
+#   500-1000: Patches applied under certain conditions (e.g. only on RHEL8)
+#   1500-1599: Patches for LLVM 15
+#   1600-1699: Patches for LLVM 16
+#   1700-1799: Patches for LLVM 17
+#   ...
+#   2000-2099: Patches for LLVM 20
+#
+# The idea behind this is that the last range of patch numbers (e.g. 2000-2099) allow
+# us to "deprecate" a patch instead of deleting it right away.
+# Suppose llvm upstream in git is at version 20 and there's a patch living
+# in some PR that has not been merged yet. You can copy that patch and put it
+# in a line like:
+#
+#   Patch2011: upstream.patch
+#
+# As time goes by, llvm moves on to LLVM 21 and meanwhile the patch has landed.
+# There's no need for you to remove the "Patch2011:" line. In fact, we encourage you
+# to not remove it for some time. For compat libraries and compat packages we might
+# still need this patch and so we're applying it automatically for you in those
+# situations. Remember that a compat library is always at least one major version
+# behind the latest packaged LLVM version.
+
 #region OpenMP patches
-%if %{maj_ver} < 20
-Patch1001:            0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
-Patch1002:            0001-openmp-Use-core_siblings_list-if-physical_package_id.patch
-%endif
+Patch1900:            0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
+Patch1901:            0001-openmp-Use-core_siblings_list-if-physical_package_id.patch
 #endregion OpenMP patches
 
 #region CLANG patches
-Patch2001:            0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
-Patch2002:            0003-PATCH-clang-Don-t-install-static-libraries.patch
+Patch101:             0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
+Patch102:             0003-PATCH-clang-Don-t-install-static-libraries.patch
 #endregion CLANG patches
 
 # Workaround a bug in ORC on ppc64le.
 # More info is available here: https://reviews.llvm.org/D159115#4641826
-Patch2005:            0001-Workaround-a-bug-in-ORC-on-ppc64le.patch
+Patch103:             0001-Workaround-a-bug-in-ORC-on-ppc64le.patch
+
+# With the introduction of --gcc-include-dir in the clang config file,
+# this might no longer be needed.
+Patch104:             0001-Driver-Give-devtoolset-path-precedence-over-Installe.patch
 
 #region LLD patches
-Patch3002:            0001-Always-build-shared-libs-for-LLD.patch
+Patch1800:            0001-18-Always-build-shared-libs-for-LLD.patch
+Patch1902:            0001-19-Always-build-shared-libs-for-LLD.patch
+Patch2000:            0001-19-Always-build-shared-libs-for-LLD.patch
 #endregion LLD patches
 
 #region RHEL patches
-# All RHEL
-%if %{maj_ver} >= 20
-Patch9001:            0001-20-Remove-myst_parser-dependency-for-RHEL.patch
-%else
-Patch9001:            0001-19-Remove-myst_parser-dependency-for-RHEL.patch
-%endif
-
 # RHEL 8 only
-Patch9002:            0001-Fix-page-size-constant-on-aarch64-and-ppc64le.patch
+Patch501:             0001-Fix-page-size-constant-on-aarch64-and-ppc64le.patch
 #endregion RHEL patches
+
+# Backport with modifications from
+# https://github.com/llvm/llvm-project/pull/99273
+# Fixes RHEL-49517.
+Patch1801:            18-99273.patch
+
+# Fix profiling after a binutils NOTE change.
+# https://github.com/llvm/llvm-project/pull/114907
+Patch1802:            0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
+Patch1903:            0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
 
 %if 0%{?rhel} == 8
 %global python3_pkgversion 3.12
 %global __python3 /usr/bin/python3.12
 %endif
 
+%if %{defined gts_version}
+# Required for 64-bit atomics on i686.
+BuildRequires:        gcc-toolset-%{gts_version}-libatomic-devel
+%endif
 BuildRequires:        gcc
 BuildRequires:        gcc-c++
 BuildRequires:        clang
@@ -250,6 +291,7 @@ BuildRequires:        cmake
 BuildRequires:        chrpath
 BuildRequires:        ninja-build
 BuildRequires:        zlib-devel
+BuildRequires:        libzstd-devel
 BuildRequires:        libffi-devel
 BuildRequires:        ncurses-devel
 # This intentionally does not use python3_pkgversion. RHEL 8 does not have
@@ -268,6 +310,9 @@ BuildRequires:        python%{python3_pkgversion}-myst-parser
 BuildRequires:        multilib-rpm-config
 %if %{with gold}
 BuildRequires:        binutils-devel
+%if %{undefined rhel} || 0%{?rhel} > 8
+BuildRequires:        binutils-gold
+%endif
 %endif
 %ifarch %{valgrind_arches}
 # Enable extra functionality when run the LLVM JIT under valgrind.
@@ -326,7 +371,7 @@ BuildRequires:        procps-ng
 # For reproducible pyc file generation
 # See https://docs.fedoraproject.org/en-US/packaging-guidelines/Python_Appendix/#_byte_compilation_reproducibility
 # Since Fedora 41 this happens automatically, and RHEL 8 does not support this.
-%if (%{defined fedora} && 0%{?fedora} < 41) || 0%{?rhel} == 9 || 0%{?rhel} == 10
+%if %{without compat_build} && ((%{defined fedora} && 0%{?fedora} < 41) || 0%{?rhel} == 9 || 0%{?rhel} == 10)
 BuildRequires:        /usr/bin/marshalparser
 %global py_reproducible_pyc_path %{buildroot}%{python3_sitelib}
 %endif
@@ -482,6 +527,9 @@ libomp-devel to enable -fopenmp.
 %package -n %{pkg_name_clang}-libs
 Summary:              Runtime library for clang
 Requires:             %{pkg_name_clang}-resource-filesystem%{?_isa} = %{version}-%{release}
+%if %{defined gts_version}
+Requires:             gcc-toolset-%{gts_version}-gcc-c++
+%endif
 Recommends:           %{pkg_name_compiler_rt}%{?_isa} = %{version}-%{release}
 Requires:             %{pkg_name_llvm}-libs = %{version}-%{release}
 # atomic support is not part of compiler-rt
@@ -600,6 +648,7 @@ Summary:              OpenMP runtime for clang
 
 URL:                  http://openmp.llvm.org
 
+Requires:             %{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
 Requires:             elfutils-libelf%{?_isa}
 
 Provides:             libomp(major) = %{maj_ver}
@@ -632,6 +681,7 @@ Requires(post): %{_sbindir}/update-alternatives
 Requires(preun): %{_sbindir}/update-alternatives
 
 Requires:             %{pkg_name_lld}-libs = %{version}-%{release}
+Provides:             lld(major) = %{maj_ver}
 
 %description -n %{pkg_name_lld}
 The LLVM project linker.
@@ -723,6 +773,14 @@ The package contains the LLDB Python module.
 %if %{with bundle_compat_lib}
 %{gpgverify} --keyring='%{SOURCE6}' --signature='%{SOURCE3001}' --data='%{SOURCE3000}'
 %setup -T -q -b 3000 -n llvm-project-%{compat_ver}.src
+
+# Apply all patches with number < 500 (unconditionally)
+# See https://rpm-software-management.github.io/rpm/manual/autosetup.html
+%autopatch -M499 -p1
+
+# automatically apply patches based on LLVM version
+%autopatch -m%{compat_maj_ver}00 -M%{compat_maj_ver}99 -p1
+
 %endif
 
 # -T     : Do Not Perform Default Archive Unpacking (without this, the <n>th source would be unpacked twice)
@@ -732,16 +790,15 @@ The package contains the LLDB Python module.
 # see http://ftp.rpm.org/max-rpm/s1-rpm-inside-macros.html
 %autosetup -N -T -b 0 -n %{src_tarball_dir}
 
-# Apply all patches with number <= 9000
+# Apply all patches with number < 500 (unconditionally)
 # See https://rpm-software-management.github.io/rpm/manual/autosetup.html
-%autopatch -M9000 -p1
+%autopatch -M499 -p1
 
-%if %{defined rhel}
-%patch -p1 -P9001
+# automatically apply patches based on LLVM version
+%autopatch -m%{maj_ver}00 -M%{maj_ver}99 -p1
 
-%if %{rhel} == 8
-%patch -p1 -P9002
-%endif
+%if %{defined rhel} && 0%{?rhel} == 8
+%patch -p1 -P501
 %endif
 
 #region LLVM preparation
@@ -777,10 +834,6 @@ The package contains the LLDB Python module.
 
 #endregion COMPILER-RT preparation
 
-#region LLDB preparation
-# Empty lldb/docs/CMakeLists.txt because we cannot build it
-echo "" > lldb/docs/CMakeLists.txt
-#endregion LLDB preparation
 #endregion prep
 
 #region build
@@ -799,6 +852,7 @@ echo "" > lldb/docs/CMakeLists.txt
 %endif
 
 %if %reduce_debuginfo == 1
+# Decrease debuginfo verbosity to reduce memory consumption during final library linking
 %global optflags %(echo %{optflags} | sed 's/-g /-g1 /')
 %endif
 
@@ -837,7 +891,18 @@ popd
 %endif
 
 #region cmake options
-%global cmake_config_args ""
+
+# Common cmake arguments used by both the normal build and bundle_compat_lib.
+# Any ABI-affecting flags should be in here.
+%global cmake_common_args \\\
+    -DLLVM_ENABLE_EH=ON \\\
+    -DLLVM_ENABLE_RTTI=ON \\\
+    -DLLVM_USE_PERF=ON \\\
+    -DLLVM_TARGETS_TO_BUILD=%{targets_to_build} \\\
+    -DBUILD_SHARED_LIBS=OFF \\\
+    -DLLVM_BUILD_LLVM_DYLIB=ON
+
+%global cmake_config_args %{cmake_common_args}
 
 #region clang options
 %global cmake_config_args %{cmake_config_args} \\\
@@ -867,14 +932,20 @@ popd
 #endregion compiler-rt options
 
 #region docs options
+
+# Add all *enabled* documentation targets (no doxygen but sphinx)
 %global cmake_config_args %{cmake_config_args} \\\
-	-DLLVM_BUILD_DOCS:BOOL=ON \\\
-	-DLLVM_ENABLE_SPHINX:BOOL=ON \\\
-	-DSPHINX_EXECUTABLE=%{_bindir}/sphinx-build-3 \\\
-	-DSPHINX_WARNINGS_AS_ERRORS=OFF \\\
 	-DLLVM_ENABLE_DOXYGEN:BOOL=OFF \\\
-	-DLLVM_INCLUDE_DOCS:BOOL=ON \\\
-	-DLLVM_INSTALL_SPHINX_HTML_DIR=%{_pkgdocdir}/html
+	-DLLVM_ENABLE_SPHINX:BOOL=ON \\\
+	-DLLVM_BUILD_DOCS:BOOL=ON
+
+# Configure sphinx:
+# Build man-pages but no HTML docs using sphinx
+%global cmake_config_args %{cmake_config_args} \\\
+	-DSPHINX_EXECUTABLE=%{_bindir}/sphinx-build-3 \\\
+	-DSPHINX_OUTPUT_HTML:BOOL=OFF \\\
+	-DSPHINX_OUTPUT_MAN:BOOL=ON \\\
+	-DSPHINX_WARNINGS_AS_ERRORS=OFF
 #endregion docs options
 
 #region lldb options
@@ -898,21 +969,19 @@ popd
 	-DLLVM_APPEND_VC_REV:BOOL=OFF \\\
 	-DLLVM_BUILD_EXAMPLES:BOOL=OFF \\\
 	-DLLVM_BUILD_EXTERNAL_COMPILER_RT:BOOL=ON \\\
-	-DLLVM_BUILD_LLVM_DYLIB:BOOL=ON \\\
 	-DLLVM_BUILD_RUNTIME:BOOL=ON \\\
 	-DLLVM_BUILD_TOOLS:BOOL=ON \\\
 	-DLLVM_BUILD_UTILS:BOOL=ON \\\
 	-DLLVM_COMMON_CMAKE_UTILS=%{install_datadir}/llvm/cmake \\\
 	-DLLVM_DEFAULT_TARGET_TRIPLE=%{llvm_triple} \\\
 	-DLLVM_DYLIB_COMPONENTS="all" \\\
-	-DLLVM_ENABLE_EH=ON \\\
 	-DLLVM_ENABLE_FFI:BOOL=ON \\\
 	-DLLVM_ENABLE_LIBCXX:BOOL=OFF \\\
 	-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \\\
 	-DLLVM_ENABLE_PROJECTS="%{projects}" \\\
-	-DLLVM_ENABLE_RTTI:BOOL=ON \\\
 	-DLLVM_ENABLE_RUNTIMES="compiler-rt;openmp;offload" \\\
-	-DLLVM_ENABLE_ZLIB:BOOL=ON \\\
+	-DLLVM_ENABLE_ZLIB:BOOL=FORCE_ON \\\
+	-DLLVM_ENABLE_ZSTD:BOOL=FORCE_ON \\\
 	-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=%{experimental_targets_to_build} \\\
 	-DLLVM_INCLUDE_BENCHMARKS=OFF \\\
 	-DLLVM_INCLUDE_EXAMPLES:BOOL=ON \\\
@@ -922,10 +991,8 @@ popd
 	-DLLVM_INSTALL_UTILS:BOOL=ON \\\
 	-DLLVM_LINK_LLVM_DYLIB:BOOL=ON \\\
 	-DLLVM_PARALLEL_LINK_JOBS=1 \\\
-	-DLLVM_TARGETS_TO_BUILD=%{targets_to_build} \\\
 	-DLLVM_TOOLS_INSTALL_DIR:PATH=bin \\\
 	-DLLVM_UNREACHABLE_OPTIMIZE:BOOL=OFF \\\
-	-DLLVM_USE_PERF:BOOL=ON \\\
 	-DLLVM_UTILS_INSTALL_DIR:PATH=bin
 #endregion llvm options
 
@@ -953,7 +1020,6 @@ popd
 
 #region misc options
 %global cmake_config_args %{cmake_config_args} \\\
-	-DBUILD_SHARED_LIBS:BOOL=OFF \\\
 	-DCMAKE_BUILD_TYPE=RelWithDebInfo \\\
 	-DCMAKE_INSTALL_PREFIX=%{install_prefix} \\\
 	-DENABLE_LINKER_BUILD_ID:BOOL=ON \\\
@@ -1028,7 +1094,7 @@ fi
 
 %cmake_build
 
-# If we don't build the runtimes target here, we'll have to wait for the %check
+# If we don't build the runtimes target here, we'll have to wait for the %%check
 # section until these files are available but they need to be installed.
 #
 #   /usr/lib64/libomptarget.devicertl.a
@@ -1045,18 +1111,15 @@ cd ..
     -DCMAKE_INSTALL_PREFIX=%{buildroot}%{_libdir}/llvm%{compat_maj_ver}/ \
     -DCMAKE_SKIP_RPATH=ON \
     -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DLLVM_BUILD_LLVM_DYLIB=ON \
-    -DLLVM_ENABLE_EH=ON \
-    -DLLVM_ENABLE_RTTI=ON \
-    -DLLVM_ENABLE_PROJECTS=clang \
-    -DLLVM_TARGETS_TO_BUILD=%{targets_to_build} \
+    -DLLVM_ENABLE_PROJECTS="clang;lldb" \
     -DLLVM_INCLUDE_BENCHMARKS=OFF \
-    -DLLVM_INCLUDE_TESTS=OFF
+    -DLLVM_INCLUDE_TESTS=OFF \
+    %{cmake_common_args}
 
 %ninja_build -C ../llvm-compat-libs LLVM
 %ninja_build -C ../llvm-compat-libs libclang.so
 %ninja_build -C ../llvm-compat-libs libclang-cpp.so
+%ninja_build -C ../llvm-compat-libs liblldb.so
 
 %endif
 #endregion compat lib
@@ -1130,6 +1193,35 @@ done
 mkdir -p %{buildroot}%{pkg_datadir}/llvm/cmake
 cp -Rv cmake/* %{buildroot}%{pkg_datadir}/llvm/cmake
 
+# Install a placeholder to redirect users of the formerly shipped
+# HTML documentation to the upstream HTML documentation.
+mkdir -pv %{buildroot}%{_pkgdocdir}/html
+cat <<EOF > %{buildroot}%{_pkgdocdir}/html/index.html
+<!doctype html>
+<html lang=en>
+  <head>
+    <title>LLVM %{maj_ver}.%{min_ver} documentation</title>
+  </head>
+  <body>
+  <h1>
+    LLVM %{maj_ver}.%{min_ver} Documentation
+  </h1>
+  <ul>
+    <li>
+      <a href="https://releases.llvm.org/%{maj_ver}.%{min_ver}.0/docs/index.html">
+        Click here for the upstream documentation of LLVM %{maj_ver}.%{min_ver}.
+      </a>
+    </li>
+    <li>
+      <a href="https://llvm.org/docs/">
+        Click here for the latest upstream documentation of LLVM.
+      </a>
+    </li>
+  </ul>
+  </body>
+</html>
+EOF
+
 #endregion LLVM installation
 
 #region CLANG installation
@@ -1186,7 +1278,7 @@ rm -Rf %{buildroot}%{install_libdir}/{libear,libscanbuild}
 rm -Rf %{buildroot}%{install_datadir}/clang/*.el
 
 # Add clang++-{version} symlink
-ln -s ../../%{install_bindir}/clang++  %{buildroot}%{install_bindir}/clang++-%{maj_ver}
+ln -s clang++  %{buildroot}%{install_bindir}/clang++-%{maj_ver}
 
 %endif
 
@@ -1207,9 +1299,7 @@ chmod a+x %{buildroot}%{install_datadir}/scan-view/{Reporter.py,startfile.py}
 rm -vf %{buildroot}%{install_datadir}/clang/clang-format-bbedit.applescript
 rm -vf %{buildroot}%{install_datadir}/clang/clang-format-sublime.py*
 
-# TODO: Package html docs
-rm -Rvf %{buildroot}%{install_docdir}/LLVM/clang/html
-rm -Rvf %{buildroot}%{install_docdir}/LLVM/clang-tools/html
+# Remove unpackaged files
 rm -Rvf %{buildroot}%{install_datadir}/clang-doc/clang-doc-default-stylesheet.css
 rm -Rvf %{buildroot}%{install_datadir}/clang-doc/index.js
 
@@ -1226,10 +1316,27 @@ echo "%%clang%{maj_ver}_resource_dir %%{_prefix}/lib/clang/%{maj_ver}" >> %{buil
 
 # Install config file for clang
 %if %{maj_ver} >=18
-mkdir -p %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/
-echo "--gcc-triple=%{_target_cpu}-redhat-linux" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang.cfg
-echo "--gcc-triple=%{_target_cpu}-redhat-linux" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang++.cfg
+%global cfg_file_content --gcc-triple=%{_target_cpu}-redhat-linux
+
+# We want to use DWARF-5 on all snapshot builds.
+%if %{without snapshot_build} && %{defined rhel} && 0%{?rhel} < 10
+%global cfg_file_content %{cfg_file_content} -gdwarf-4 -g0
 %endif
+
+%if %{defined gts_version}
+%global cfg_file_content %{cfg_file_content} --gcc-install-dir=/opt/rh/gcc-toolset-%{gts_version}/root/%{_exec_prefix}/lib/gcc/%{_target_cpu}-redhat-linux/%{gts_version}
+%endif
+
+mkdir -p %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/
+echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang.cfg
+echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang++.cfg
+%ifarch x86_64
+# On x86_64, install an additional set of config files so -m32 works.
+echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-clang.cfg
+echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-clang++.cfg
+%endif
+%endif
+
 
 #endregion CLANG installation
 
@@ -1280,9 +1387,6 @@ rm %{buildroot}%{install_bindir}/llvm-omp-kernel-replay
 #endregion OPENMP installation
 
 #region LLD installation
-
-# Remove LLD's HTML documentation files
-rm -Rvf %{buildroot}%{install_docdir}/LLVM/lld/html
 
 %if %{without compat_build}
 # Required when using update-alternatives:
@@ -1347,6 +1451,7 @@ touch %{buildroot}%{_bindir}/llvm-config%{exec_suffix}
 install -m 0755 ../llvm-compat-libs/lib/libLLVM.so.%{compat_maj_ver}* %{buildroot}%{_libdir}
 install -m 0755 ../llvm-compat-libs/lib/libclang.so.%{compat_maj_ver}* %{buildroot}%{_libdir}
 install -m 0755 ../llvm-compat-libs/lib/libclang-cpp.so.%{compat_maj_ver}* %{buildroot}%{_libdir}
+install -m 0755 ../llvm-compat-libs/lib/liblldb.so.%{compat_maj_ver}* %{buildroot}%{_libdir}
 %endif
 #endregion install
 
@@ -1377,11 +1482,11 @@ function reset_test_opts()
 
     # See https://llvm.org/docs/CommandGuide/lit.html#general-options
     export LIT_OPTS="-vv --time-tests"
-    
+
     # Set to mark tests as expected to fail.
     # See https://llvm.org/docs/CommandGuide/lit.html#cmdoption-lit-xfail
     unset LIT_XFAIL
-    
+
     # Set to mark tests to not even run.
     # See https://llvm.org/docs/CommandGuide/lit.html#cmdoption-lit-filter-out
     # Unfortunately LIT_FILTER_OUT is not accepting a list but a regular expression.
@@ -1393,7 +1498,7 @@ function reset_test_opts()
     unset LIT_FILTER_OUT
 
     # Set for filtering out unit tests.
-    # See http://google.github.io/googletest/advanced.html#running-a-subset-of-the-tests    
+    # See http://google.github.io/googletest/advanced.html#running-a-subset-of-the-tests
     unset GTEST_FILTER
 }
 
@@ -1410,7 +1515,7 @@ function reset_test_opts()
 # Then $LIT_FILTER_OUT should evaluate to: (foo|bar)
 function test_list_to_regex()
 {
-    local -n arr=$1 
+    local -n arr=$1
     # Prepare LIT_FILTER_OUT regex from index bash array
     # Join each element with a pipe symbol (regex for "or")
     arr=$(printf "|%s" "${arr[@]}")
@@ -1433,7 +1538,7 @@ reset_test_opts
 reset_test_opts
 # Xfail testing of update utility tools
 export LIT_XFAIL="tools/UpdateTestChecks"
-%cmake_build --target check-llvm 
+%cmake_build --target check-llvm
 #endregion Test LLVM
 
 #region Test CLANG
@@ -1504,6 +1609,14 @@ test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_one_int.c")
 
 %ifarch s390x
 test_list_filter_out+=("libomp :: flush/omp_flush.c")
+test_list_filter_out+=("libomp :: worksharing/for/omp_for_schedule_guided.c")
+%endif
+
+%ifarch aarch64 s390x
+# The following test has been failling intermittently on aarch64 and s390x.
+# Re-enable it after https://github.com/llvm/llvm-project/issues/117773
+# gets fixed.
+test_list_filter_out+=("libarcher :: races/taskwait-depend.c")
 %endif
 
 # The following tests seem pass on ppc64le and x86_64 and aarch64 only:
@@ -1607,7 +1720,14 @@ export LIT_XFAIL="$LIT_XFAIL;offloading/thread_state_2.c"
 
 export LIT_FILTER_OUT=$(test_list_to_regex test_list_filter_out)
 
+%if 0%{?rhel}
+# libomp tests are often very slow on s390x brew builders
+%ifnarch s390x
 %cmake_build --target check-openmp
+%endif
+%else
+%cmake_build --target check-openmp
+%endif
 #endregion Test OPENMP
 
 %if %{with lldb}
@@ -1618,12 +1738,12 @@ export LIT_FILTER_OUT=$(test_list_to_regex test_list_filter_out)
 ## reset_test_opts
 ## %%cmake_build --target check-lldb-unit
 ## #endregion LLDB unit tests
-## 
+##
 ## #region LLDB SB API tests
 ## reset_test_opts
 ## %%cmake_build --target check-lldb-api
 ## #endregion LLDB SB API tests
-## 
+##
 ## #region LLDB shell tests
 ## reset_test_opts
 ## %%cmake_build --target check-lldb-shell
@@ -1680,7 +1800,7 @@ fi
 # alternative must be removed in order to give priority to a newly installed
 # compat package.
 if [[ $1 -eq 0
-      || "x$(%{_bindir}/llvm-config-%{maj_ver} --version | awk -F . '{ print $1 }')" != "x%{maj_ver}" ]]; then
+      || "x$(%{_bindir}/llvm-config%{exec_suffix} --version | awk -F . '{ print $1 }')" != "x%{maj_ver}" ]]; then
   %{_sbindir}/update-alternatives --remove llvm-config-%{maj_ver} %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
 fi
 %endif
@@ -1968,14 +2088,14 @@ fi
 
 %files -n %{pkg_name_llvm}-libs
 %license llvm/LICENSE.TXT
-%{install_libdir}/libLLVM-%{maj_ver}%{?llvm_snapshot_version_suffix:%{llvm_snapshot_version_suffix}}.so
+%{install_libdir}/libLLVM-%{maj_ver}%{?llvm_snapshot_version_suffix}.so
 %if %{with gold}
 %{install_libdir}/LLVMgold.so
 %if %{without compat_build}
 %{_libdir}/bfd-plugins/LLVMgold.so
 %endif
 %endif
-%{install_libdir}/libLLVM.so.%{maj_ver}.%{min_ver}%{?llvm_snapshot_version_suffix:%{llvm_snapshot_version_suffix}}
+%{install_libdir}/libLLVM.so.%{maj_ver}.%{min_ver}%{?llvm_snapshot_version_suffix}
 %{install_libdir}/libLTO.so*
 %{install_libdir}/libRemarks.so*
 %if %{with compat_build}
@@ -2005,7 +2125,7 @@ fi
 
 %files -n %{pkg_name_llvm}-doc
 %license llvm/LICENSE.TXT
-%doc %{_pkgdocdir}/html
+%doc %{_pkgdocdir}/html/index.html
 
 %files -n %{pkg_name_llvm}-static
 %license llvm/LICENSE.TXT
@@ -2062,6 +2182,10 @@ fi
 %{install_bindir}/clang-cpp
 %{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang.cfg
 %{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang++.cfg
+%ifarch x86_64
+%{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-clang.cfg
+%{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-clang++.cfg
+%endif
 %{_mandir}/man1/clang-%{maj_ver}.1.gz
 %{_mandir}/man1/clang++-%{maj_ver}.1.gz
 %if %{without compat_build}
@@ -2158,6 +2282,9 @@ fi
 %{install_bindir}/clang-reorder-fields
 %{install_bindir}/clang-repl
 %{install_bindir}/clang-scan-deps
+%if %{maj_ver} >= 20
+%{install_bindir}/clang-sycl-linker
+%endif
 %{install_bindir}/clang-tidy
 %{install_bindir}/clangd
 %{install_bindir}/diagtool
@@ -2194,6 +2321,9 @@ fi
 %{_bindir}/clang-reorder-fields-%{maj_ver}
 %{_bindir}/clang-repl-%{maj_ver}
 %{_bindir}/clang-scan-deps-%{maj_ver}
+%if %{maj_ver} >= 20
+%{_bindir}/clang-sycl-linker-%{maj_ver}
+%endif
 %{_bindir}/clang-tidy-%{maj_ver}
 %{_bindir}/clangd-%{maj_ver}
 %{_bindir}/diagtool-%{maj_ver}
@@ -2372,6 +2502,11 @@ fi
 %{install_libdir}/liblldb*.so
 %{install_libdir}/liblldb.so.*
 %{install_libdir}/liblldbIntelFeatures.so.*
+%{_mandir}/man1/lldb-server%{exec_suffix}.1.gz
+%{_mandir}/man1/lldb%{exec_suffix}.1.gz
+%if %{with bundle_compat_lib}
+%{_libdir}/liblldb.so.%{compat_maj_ver}*
+%endif
 
 %files -n %{pkg_name_lldb}-devel
 %{install_includedir}/lldb
@@ -2384,6 +2519,12 @@ fi
 
 #region changelog
 %changelog
+* Wed Jan 15 2025 Nikita Popov <npopov@redhat.com> - 19.1.7-1
+- Update to LLVM 19.1.7 (RHEL-57456)
+- Remove llvm18 compat package (RHEL-57457)
+- Remove generated html content from llvm-doc subpackage (RHEL-58900)
+- Enable LLVM_ENABLE_ZSTD=ON (RHEL-70325)
+
 * Mon Oct 14 2024 Nikita Popov <npopov@redhat.com> - 19.1.1-5
 - Add missing requires
 
