@@ -182,7 +182,7 @@
 #region main package
 Name:                 %{pkg_name_llvm}
 Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:              1%{?dist}
+Release:              2%{?dist}
 Summary:              The Low Level Virtual Machine
 
 License:              Apache-2.0 WITH LLVM-exception OR NCSA
@@ -239,6 +239,7 @@ Source1000:           version.spec.inc
 #region OpenMP patches
 Patch1900:            0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
 Patch1901:            0001-openmp-Use-core_siblings_list-if-physical_package_id.patch
+Patch1910:            0001-openmp-Support-CET-in-z_Linux_asm.S-123213.patch
 #endregion OpenMP patches
 
 #region CLANG patches
@@ -2541,6 +2542,9 @@ fi
 
 #region changelog
 %changelog
+* Fri Jan 17 2025 Nikita Popov <npopov@redhat.com> - 19.1.7-2
+- Support CET in libomp.so (RHEL-74346)
+
 * Wed Jan 15 2025 Nikita Popov <npopov@redhat.com> - 19.1.7-1
 - Update to LLVM 19.1.7 (RHEL-57456)
 - Remove llvm18 compat package (RHEL-57457)
