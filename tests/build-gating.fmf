@@ -1,13 +1,14 @@
 #
-# Build/PR gating tests for *LLVM 13*
+# Build/PR gating tests for *LLVM 19*
 #
-# Compatible with various LLVM 13 distributions:
+# Compatible with various LLVM 19 distributions:
 #
 #   * Fedora (ursine packages)
+#   * CentOS 10 stream (ursine packages)
 #   * Centos 9 stream (ursine packages)
+#   * RHEL-10 (ursine packages)
 #   * RHEL-9 (ursine packages)
 #   * RHEL-8 (Red Hat module)
-#   * RHEL-7 (software collection)
 #
 
 summary: LLVM tests for build/PR gating
