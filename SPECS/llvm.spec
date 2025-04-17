@@ -1,9 +1,9 @@
 #region globals
 #region version
-%global maj_ver 19
+%global maj_ver 20
 %global min_ver 1
-%global patch_ver 7
-#global rc_ver 4
+%global patch_ver 2
+#global rc_ver 3
 
 %bcond_with snapshot_build
 %if %{with snapshot_build}
@@ -24,21 +24,59 @@
 %bcond_with compat_build
 # Bundle compat libraries for a previous LLVM version, as part of llvm-libs and
 # clang-libs. Used on RHEL.
-%bcond_with bundle_compat_lib
+%bcond_without bundle_compat_lib
 %bcond_without check
 
 %if %{with bundle_compat_lib}
-%global compat_maj_ver 18
-%global compat_ver %{compat_maj_ver}.1.8
+%global compat_maj_ver 19
+%global compat_ver %{compat_maj_ver}.1.7
 %endif
 
-# Compat builds do not include python-lit and lldb
+# Compat builds do not include python-lit
 %if %{with compat_build}
 %bcond_with python_lit
-%bcond_with lldb
 %else
 %bcond_without python_lit
+%endif
+
 %bcond_without lldb
+
+%if %{without compat_build} && 0%{?fedora} >= 41
+%ifarch %{ix86}
+%bcond_with mlir
+%else
+%bcond_without mlir
+%endif
+%else
+%bcond_with mlir
+%endif
+
+# The libcxx build condition also enables libcxxabi and libunwind.
+# Fedora 41 is the first version that enabled FatLTO for clang-built files.
+# Without FatLTO, we can't enable ThinLTO and link using GNU LD.
+%if %{without compat_build} && 0%{?fedora} >= 41
+%bcond_without libcxx
+%else
+%bcond_with libcxx
+%endif
+
+# I've called the build condition "build_bolt" to indicate that this does not
+# necessarily "use" BOLT in order to build LLVM.
+%if %{without compat_build} && 0%{?fedora} >= 41
+# BOLT only supports aarch64 and x86_64
+%ifarch aarch64 x86_64
+%bcond_without build_bolt
+%else
+%bcond_with build_bolt
+%endif
+%else
+%bcond_with build_bolt
+%endif
+
+%if %{without compat_build} && 0%{?fedora} >= 41
+%bcond_without polly
+%else
+%bcond_with polly
 %endif
 
 # Disable LTO on x86 and riscv in order to reduce memory consumption.
@@ -56,6 +94,19 @@
 # See https://docs.fedoraproject.org/en-US/packaging-guidelines/#_compiler_macros
 %global toolchain clang
 
+# Make sure that we are not building with a newer compiler than the targeted
+# version. For example, if we build LLVM 19 with Clang 20, then we'd build
+# LLVM libraries with Clang 20, and then the runtimes build would use the
+# just-built Clang 19. Runtimes that link against LLVM libraries would then
+# try to make Clang 19 perform LTO involving LLVM 20 bitcode.
+%if %{with compat_build}
+%global host_clang_maj_ver %{maj_ver}
+%endif
+
+%if %{defined host_clang_maj_ver}
+%global __cc /usr/bin/clang-%{host_clang_maj_ver}
+%global __cxx /usr/bin/clang++-%{host_clang_maj_ver}
+%endif
 
 %if %{defined rhel} && 0%{?rhel} < 10
 %global gts_version 14
@@ -78,33 +129,23 @@
 %global pkg_name_llvm llvm%{maj_ver}
 %global pkg_suffix %{maj_ver}
 %global exec_suffix -%{maj_ver}
-%global install_prefix %{_libdir}/%{pkg_name_llvm}
+%else
+%global pkg_name_llvm llvm
+%global pkg_suffix %{nil}
+%global exec_suffix %{nil}
+%endif
+
+# Apart from compiler-rt and libcxx, everything is installed into a
+# version-specific prefix. Non-compat packages add symlinks to this prefix.
+%global install_prefix %{_libdir}/llvm%{maj_ver}
 %global install_bindir %{install_prefix}/bin
 %global install_includedir %{install_prefix}/include
 %global install_libdir %{install_prefix}/lib
 %global install_datadir %{install_prefix}/share
+%global install_mandir %{install_prefix}/share/man
 %global install_libexecdir %{install_prefix}/libexec
-%global install_docdir %{install_datadir}/doc
-%global unprefixed_libdir lib
 %global build_libdir llvm/%{_vpath_builddir}/lib
-
-%global pkg_includedir %{_includedir}/%{pkg_name_llvm}
-%global pkg_datadir %{install_prefix}/share
-%else
-%global pkg_name_llvm llvm
-%global install_prefix /usr
-%global install_bindir %{_bindir}
-%global install_datadir %{_datadir}
-%global install_libdir %{_libdir}
-%global install_includedir %{_includedir}
-%global install_libexecdir %{_libexecdir}
-%global install_docdir %{_docdir}
-%global unprefixed_libdir %{_lib}
-%global build_libdir llvm/%{_vpath_builddir}/%{_lib}
-%global pkg_datadir %{_datadir}
-%global pkg_suffix %{nil}
-%global exec_suffix %{nil}
-%endif
+%global unprefixed_libdir lib
 
 %if 0%{?rhel}
 %global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;ARM;Mips;BPF;WebAssembly;RISCV"
@@ -151,8 +192,7 @@
 # export ASMFLAGS=$CFLAGS
 #endregion COMPILER-RT globals
 
-#region LLD globals
-
+#region openmp globals
 %global pkg_name_libomp libomp%{pkg_suffix}
 
 %global so_suffix %{maj_ver}.%{min_ver}
@@ -166,23 +206,40 @@
 %else
 %global libomp_arch %{_arch}
 %endif
-
-#endregion LLD globals
+#endregion openmp globals
 
 #region LLD globals
 %global pkg_name_lld lld%{pkg_suffix}
 #endregion LLD globals
 
 #region LLDB globals
-%global pkg_name_lldb lldb
+%global pkg_name_lldb lldb%{pkg_suffix}
 #endregion LLDB globals
+
+#region MLIR globals
+%global pkg_name_mlir mlir%{pkg_suffix}
+#endregion MLIR globals
+
+#region libcxx globals
+%global pkg_name_libcxx libcxx
+%global pkg_name_libcxxabi libcxxabi
+%global pkg_name_llvm_libunwind llvm-libunwind
+#endregion libcxx globals
+
+#region BOLT globals
+%global pkg_name_bolt llvm-bolt%{pkg_suffix}
+#endregion BOLT globals
+
+#region polly globals
+%global pkg_name_polly polly%{pkg_suffix}
+#endregion polly globals
 #endregion globals
 
 #region packages
 #region main package
 Name:                 %{pkg_name_llvm}
 Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:              2%{?dist}
+Release:              1%{?dist}
 Summary:              The Low Level Virtual Machine
 
 License:              Apache-2.0 WITH LLVM-exception OR NCSA
@@ -236,16 +293,9 @@ Source1000:           version.spec.inc
 # situations. Remember that a compat library is always at least one major version
 # behind the latest packaged LLVM version.
 
-#region OpenMP patches
-Patch1900:            0001-openmp-Add-option-to-disable-tsan-tests-111548.patch
-Patch1901:            0001-openmp-Use-core_siblings_list-if-physical_package_id.patch
-Patch1910:            0001-openmp-Support-CET-in-z_Linux_asm.S-123213.patch
-#endregion OpenMP patches
-
 #region CLANG patches
 Patch101:             0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
 Patch102:             0003-PATCH-clang-Don-t-install-static-libraries.patch
-#endregion CLANG patches
 
 # Workaround a bug in ORC on ppc64le.
 # More info is available here: https://reviews.llvm.org/D159115#4641826
@@ -254,27 +304,34 @@ Patch103:             0001-Workaround-a-bug-in-ORC-on-ppc64le.patch
 # With the introduction of --gcc-include-dir in the clang config file,
 # this might no longer be needed.
 Patch104:             0001-Driver-Give-devtoolset-path-precedence-over-Installe.patch
+#endregion CLANG patches
+
+# Fix LLVMConfig.cmake when symlinks are used.
+# (https://github.com/llvm/llvm-project/pull/124743 landed in LLVM 21)
+Patch1902:            0001-cmake-Resolve-symlink-when-finding-install-prefix.patch
+Patch2003:            0001-cmake-Resolve-symlink-when-finding-install-prefix.patch
 
 #region LLD patches
-Patch1800:            0001-18-Always-build-shared-libs-for-LLD.patch
-Patch1902:            0001-19-Always-build-shared-libs-for-LLD.patch
-Patch2000:            0001-19-Always-build-shared-libs-for-LLD.patch
+Patch106:             0001-19-Always-build-shared-libs-for-LLD.patch
 #endregion LLD patches
+
+#region polly patches
+Patch2001:            0001-20-polly-shared-libs.patch
+Patch2101:            0001-20-polly-shared-libs.patch
+#endregion polly patches
 
 #region RHEL patches
 # RHEL 8 only
 Patch501:             0001-Fix-page-size-constant-on-aarch64-and-ppc64le.patch
 #endregion RHEL patches
 
-# Backport with modifications from
-# https://github.com/llvm/llvm-project/pull/99273
-# Fixes RHEL-49517.
-Patch1801:            18-99273.patch
+# Fix an isel error triggered by Rust 1.85 on s390x
+# https://github.com/llvm/llvm-project/issues/124001
+Patch1901:            0001-SystemZ-Fix-ICE-with-i128-i64-uaddo-carry-chain.patch
 
-# Fix profiling after a binutils NOTE change.
-# https://github.com/llvm/llvm-project/pull/114907
-Patch1802:            0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
-Patch1903:            0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.patch
+# Backport fix for https://bugzilla.redhat.com/show_bug.cgi?id=2352554.
+# https://github.com/llvm/llvm-project/pull/131801
+Patch2004:            131801.patch
 
 %if 0%{?rhel} == 8
 %global python3_pkgversion 3.12
@@ -284,10 +341,15 @@ Patch1903:            0001-profile-Use-base-vaddr-for-__llvm_write_binary_ids-n.
 %if %{defined gts_version}
 # Required for 64-bit atomics on i686.
 BuildRequires:        gcc-toolset-%{gts_version}-libatomic-devel
+BuildRequires:        gcc-toolset-%{gts_version}-gcc-c++
 %endif
 BuildRequires:        gcc
 BuildRequires:        gcc-c++
+%if %{defined host_clang_maj_ver}
+BuildRequires:        clang(major) = %{host_clang_maj_ver}
+%else
 BuildRequires:        clang
+%endif
 BuildRequires:        cmake
 BuildRequires:        chrpath
 BuildRequires:        ninja-build
@@ -364,6 +426,13 @@ BuildRequires:        perl(Term::ANSIColor)
 BuildRequires:        perl(Text::ParseWords)
 BuildRequires:        perl(Sys::Hostname)
 
+%if %{with mlir}
+BuildRequires:        python%{python3_pkgversion}-numpy
+BuildRequires:        python%{python3_pkgversion}-pybind11
+BuildRequires:        python%{python3_pkgversion}-pyyaml
+BuildRequires:        python%{python3_pkgversion}-nanobind-devel
+%endif
+
 BuildRequires:        graphviz
 
 # This is required because we need "ps" when running LLDB tests
@@ -394,7 +463,6 @@ tools as well as libraries with equivalent functionality.
 Summary:              LLVM lit test runner for Python 3
 
 BuildArch:            noarch
-Requires:             python%{python3_pkgversion}-setuptools
 %if 0%{?rhel} == 8
 # Became python3.12-clang in LLVM 19
 Obsoletes:            python3-lit < 18.9
@@ -409,6 +477,14 @@ lit is a tool used by the LLVM project for executing its test suites.
 #endregion LLVM lit package
 
 #region LLVM packages
+
+%package -n %{pkg_name_llvm}-filesystem
+Summary:              Filesystem package that owns the versioned llvm prefix
+# Was renamed immediately after introduction.
+Obsoletes:            %{pkg_name_llvm}-resource-filesystem < 20
+
+%description -n %{pkg_name_llvm}-filesystem
+This packages owns the versioned llvm prefix directory: $libdir/llvm$version
 
 %package -n %{pkg_name_llvm}-devel
 Summary:              Libraries and header files for LLVM
@@ -429,8 +505,8 @@ Requires:             %{pkg_name_llvm}-test%{?_isa} = %{version}-%{release}
 Requires:             %{pkg_name_llvm}-googletest%{?_isa} = %{version}-%{release}
 
 
-Requires(post):	%{_sbindir}/alternatives
-Requires(postun):	%{_sbindir}/alternatives
+Requires(post):	alternatives
+Requires(postun):	alternatives
 
 Provides:             llvm-devel(major) = %{maj_ver}
 
@@ -448,12 +524,14 @@ Documentation for the LLVM compiler infrastructure.
 
 %package -n %{pkg_name_llvm}-libs
 Summary:              LLVM shared libraries
+Requires:             %{pkg_name_llvm}-filesystem%{?_isa} = %{version}-%{release}
 
 %description -n %{pkg_name_llvm}-libs
 Shared libraries for the LLVM compiler infrastructure.
 
 %package -n %{pkg_name_llvm}-static
 Summary:              LLVM static libraries
+Requires:             %{pkg_name_llvm}-filesystem%{?_isa} = %{version}-%{release}
 Conflicts:            %{pkg_name_llvm}-devel < 8
 
 Provides:             llvm-static(major) = %{maj_ver}
@@ -463,6 +541,7 @@ Static libraries for the LLVM compiler infrastructure.
 
 %package -n %{pkg_name_llvm}-cmake-utils
 Summary:              CMake utilities shared across LLVM subprojects
+Requires:             %{pkg_name_llvm}-filesystem%{?_isa} = %{version}-%{release}
 
 %description -n %{pkg_name_llvm}-cmake-utils
 CMake utilities shared across LLVM subprojects.
@@ -479,6 +558,7 @@ Provides:             llvm-test(major) = %{maj_ver}
 LLVM regression tests.
 
 %package -n %{pkg_name_llvm}-googletest
+Requires:             %{pkg_name_llvm}-filesystem%{?_isa} = %{version}-%{release}
 Summary:              LLVM's modified googletest sources
 
 %description -n %{pkg_name_llvm}-googletest
@@ -549,6 +629,8 @@ Requires:             %{pkg_name_clang}-libs = %{version}-%{release}
 Requires:             %{pkg_name_clang}%{?_isa} = %{version}-%{release}
 # The clang CMake files reference tools from clang-tools-extra.
 Requires:             %{pkg_name_clang}-tools-extra%{?_isa} = %{version}-%{release}
+# The clang cmake package depends on the LLVM cmake package.
+Requires:             %{pkg_name_llvm}-devel%{?_isa} = %{version}-%{release}
 Provides:             clang-devel(major) = %{maj_ver}
 # For the clangd language server contained in this subpackage,
 # add a Provides so users can just run "dnf install clangd."
@@ -571,7 +653,6 @@ This package owns the clang resouce directory: $libdir/clang/$version/
 %package -n %{pkg_name_clang}-analyzer
 Summary:              A source code analysis framework
 License:              Apache-2.0 WITH LLVM-exception OR NCSA OR MIT
-BuildArch:            noarch
 Requires:             %{pkg_name_clang} = %{version}-%{release}
 
 %description -n %{pkg_name_clang}-analyzer
@@ -617,7 +698,7 @@ Requires:             python%{python3_pkgversion}
 Obsoletes:            python3-clang < 18.9
 %endif
 %description -n python%{python3_pkgversion}-clang
-%{summary}.
+Python3 bindings for clang.
 
 
 %endif
@@ -631,7 +712,7 @@ Summary:              LLVM "compiler-rt" runtime libraries
 
 License:              Apache-2.0 WITH LLVM-exception OR NCSA OR MIT
 
-Requires:             clang-resource-filesystem%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_clang}-resource-filesystem%{?_isa} = %{version}-%{release}
 Provides:             compiler-rt(major) = %{maj_ver}
 
 %description -n %{pkg_name_compiler_rt}
@@ -663,7 +744,7 @@ Summary:              OpenMP header files
 URL:                  http://openmp.llvm.org
 
 Requires:             %{pkg_name_libomp}%{?_isa} = %{version}-%{release}
-Requires:             clang-resource-filesystem%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_clang}-resource-filesystem%{?_isa} = %{version}-%{release}
 
 Provides:             libomp-devel(major) = %{maj_ver}
 
@@ -678,8 +759,8 @@ URL:                  http://openmp.llvm.org
 %package -n %{pkg_name_lld}
 Summary:              The LLVM Linker
 
-Requires(post): %{_sbindir}/update-alternatives
-Requires(preun): %{_sbindir}/update-alternatives
+Requires(post): alternatives
+Requires(preun): alternatives
 
 Requires:             %{pkg_name_lld}-libs = %{version}-%{release}
 Provides:             lld(major) = %{maj_ver}
@@ -732,7 +813,9 @@ License:              Apache-2.0 WITH LLVM-exception OR NCSA
 URL:                  http://lldb.llvm.org/
 
 Requires:             %{pkg_name_clang}-libs%{?_isa} = %{version}-%{release}
+%if %{without compat_build}
 Requires:             python%{python3_pkgversion}-lldb
+%endif
 
 %description -n %{pkg_name_lldb}
 LLDB is a next generation, high-performance debugger. It is built as a set
@@ -747,6 +830,7 @@ Requires:             %{pkg_name_lldb}%{?_isa} = %{version}-%{release}
 %description -n %{pkg_name_lldb}-devel
 The package contains header files for the LLDB debugger.
 
+%if %{without compat_build}
 %package -n python%{python3_pkgversion}-lldb
 %{?python_provide:%python_provide python%{python3_pkgversion}-lldb}
 Summary:              Python module for LLDB
@@ -761,7 +845,171 @@ Obsoletes:            python3-lldb < 18.9
 %description -n python%{python3_pkgversion}-lldb
 The package contains the LLDB Python module.
 %endif
+%endif
 #endregion LLDB packages
+
+#region MLIR packages
+%if %{with mlir}
+%package -n %{pkg_name_mlir}
+Summary:              Multi-Level Intermediate Representation Overview
+License:              Apache-2.0 WITH LLVM-exception
+URL:                  http://mlir.llvm.org
+Requires:             %{pkg_name_llvm}-libs = %{version}-%{release}
+
+%description -n %{pkg_name_mlir}
+The MLIR project is a novel approach to building reusable and extensible
+compiler infrastructure. MLIR aims to address software fragmentation,
+improve compilation for heterogeneous hardware, significantly reduce
+the cost of building domain specific compilers, and aid in connecting
+existing compilers together.
+
+%package -n %{pkg_name_mlir}-static
+Summary:              MLIR static files
+Requires:             %{pkg_name_mlir}%{?_isa} = %{version}-%{release}
+
+%description -n %{pkg_name_mlir}-static
+MLIR static files.
+
+%package -n %{pkg_name_mlir}-devel
+Summary:              MLIR development files
+Requires:             %{pkg_name_mlir}%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_mlir}-static%{?_isa} = %{version}-%{release}
+
+%description -n %{pkg_name_mlir}-devel
+MLIR development files.
+
+%package -n python%{python3_pkgversion}-mlir
+%{?python_provide:%python_provide python%{python3_pkgversion}-mlir}
+Summary:              MLIR python bindings
+
+Requires:             python%{python3_pkgversion}
+Requires:             python%{python3_pkgversion}-numpy
+
+%description -n python%{python3_pkgversion}-mlir
+MLIR python bindings.
+%endif
+#endregion MLIR packages
+
+#region libcxx packages
+%if %{with libcxx}
+%package -n %{pkg_name_libcxx}
+Summary:              C++ standard library targeting C++11
+License:              Apache-2.0 WITH LLVM-exception OR MIT OR NCSA
+URL:                  http://libcxx.llvm.org/
+
+Requires:             %{pkg_name_libcxxabi}%{?_isa} = %{version}-%{release}
+
+%description -n %{pkg_name_libcxx}
+libc++ is a new implementation of the C++ standard library, targeting C++11 and above.
+
+
+%package -n %{pkg_name_libcxx}-devel
+Summary:              Headers and libraries for %{pkg_name_libcxx} devel
+Requires:             %{pkg_name_libcxx}%{?_isa} = %{version}-%{release}
+Requires:             %{pkg_name_libcxxabi}-devel
+
+%description -n %{pkg_name_libcxx}-devel
+Headers and libraries for %{pkg_name_libcxx} devel.
+
+%package -n %{pkg_name_libcxx}-static
+Summary:              Static libraries for %{pkg_name_libcxx}
+
+%description -n %{pkg_name_libcxx}-static
+Static libraries for %{pkg_name_libcxx}.
+
+%package -n %{pkg_name_libcxxabi}
+Summary:              Low level support for a standard C++ library
+
+%description -n %{pkg_name_libcxxabi}
+libcxxabi provides low level support for a standard C++ library.
+
+%package -n %{pkg_name_libcxx}abi-devel
+Summary:              Headers and libraries for %{pkg_name_libcxxabi} devel
+Requires:             %{pkg_name_libcxxabi}%{?_isa} = %{version}-%{release}
+
+%description -n %{pkg_name_libcxxabi}-devel
+Headers and libraries for %{pkg_name_libcxxabi} devel.
+
+%package -n %{pkg_name_libcxxabi}-static
+Summary:              Static libraries for %{pkg_name_libcxxabi}
+
+%description -n %{pkg_name_libcxxabi}-static
+Static libraries for %{pkg_name_libcxxabi}.
+
+%package -n %{pkg_name_llvm_libunwind}
+Summary:              LLVM libunwind
+
+%description -n %{pkg_name_llvm_libunwind}
+
+LLVM libunwind is an implementation of the interface defined by the HP libunwind
+project. It was contributed Apple as a way to enable clang++ to port to
+platforms that do not have a system unwinder. It is intended to be a small and
+fast implementation of the ABI, leaving off some features of HP's libunwind
+that never materialized (e.g. remote unwinding).
+
+%package -n %{pkg_name_llvm_libunwind}-devel
+Summary:              LLVM libunwind development files
+Provides:             %{pkg_name_llvm_libunwind}(major) = %{maj_ver}
+Requires:             %{pkg_name_llvm_libunwind}%{?_isa} = %{version}-%{release}
+
+%description -n %{pkg_name_llvm_libunwind}-devel
+Unversioned shared library for LLVM libunwind
+
+%package -n %{pkg_name_llvm_libunwind}-static
+Summary:              Static library for LLVM libunwind
+
+%description -n %{pkg_name_llvm_libunwind}-static
+Static library for LLVM libunwind.
+
+%endif
+#endregion libcxx packages
+
+#region BOLT packages
+%if %{with build_bolt}
+%package -n %{pkg_name_bolt}
+Summary:              A post-link optimizer developed to speed up large applications
+License:              Apache-2.0 WITH LLVM-exception
+URL:                  https://github.com/llvm/llvm-project/tree/main/bolt
+Requires:             %{pkg_name_llvm}-filesystem%{?_isa} = %{version}-%{release}
+
+# As hinted by bolt documentation
+Recommends:           gperftools-devel
+
+%description -n %{pkg_name_bolt}
+
+BOLT is a post-link optimizer developed to speed up large applications.
+It achieves the improvements by optimizing application's code layout based on
+execution profile gathered by sampling profiler, such as Linux `perf` tool.
+%endif
+#endregion BOLT packages
+
+#region polly packages
+%if %{with polly}
+%package -n %{pkg_name_polly}
+Summary:              LLVM Framework for High-Level Loop and Data-Locality Optimizations
+License:              Apache-2.0 WITH LLVM-exception
+URL:                  http://polly.llvm.org
+Requires:             %{pkg_name_llvm}-libs = %{version}-%{release}
+
+# We no longer ship polly-doc.
+Obsoletes:            %{pkg_name_polly}-doc < 20
+
+%description -n %{pkg_name_polly}
+
+Polly is a high-level loop and data-locality optimizer and optimization
+infrastructure for LLVM. It uses an abstract mathematical representation based
+on integer polyhedron to analyze and optimize the memory access pattern of a
+program.
+
+%package -n %{pkg_name_polly}-devel
+Summary:              Polly header files
+Requires:             %{pkg_name_polly} = %{version}-%{release}
+
+%description  -n %{pkg_name_polly}-devel
+Polly header files.
+%endif
+#endregion polly packages
+
 #endregion packages
 
 #region prep
@@ -835,6 +1083,19 @@ The package contains the LLDB Python module.
 
 #endregion COMPILER-RT preparation
 
+#region lldb preparation
+# Compat builds don't build python bindings, but should still build man pages.
+%if %{with compat_build}
+sed -i 's/LLDB_ENABLE_PYTHON/TRUE/' lldb/docs/CMakeLists.txt
+%endif
+#endregion
+
+#region libcxx preparation
+%if %{with libcxx}
+%py3_shebang_fix libcxx/utils/
+%endif
+#endregion libcxx preparation
+
 #endregion prep
 
 #region build
@@ -849,19 +1110,52 @@ The package contains the LLDB Python module.
 %global reduce_debuginfo 1
 %endif
 
-%global runtimes compiler-rt;openmp
-%ifnarch riscv64
-%global runtimes %{runtimes};offload
-%endif
-
 %if %reduce_debuginfo == 1
 # Decrease debuginfo verbosity to reduce memory consumption during final library linking
 %global optflags %(echo %{optflags} | sed 's/-g /-g1 /')
 %endif
 
 %global projects clang;clang-tools-extra;lld
+%global runtimes compiler-rt;openmp;offload
+
 %if %{with lldb}
 %global projects %{projects};lldb
+%endif
+
+%if %{with mlir}
+%global projects %{projects};mlir
+%endif
+
+%if %{with build_bolt}
+%global projects %{projects};bolt
+%endif
+
+%if %{with polly}
+%global projects %{projects};polly
+%endif
+
+%if %{with libcxx}
+%global runtimes %{runtimes};libcxx;libcxxabi;libunwind
+%endif
+
+%global cfg_file_content --gcc-triple=%{_target_cpu}-redhat-linux
+
+# We want to use DWARF-5 on all snapshot builds.
+%if %{without snapshot_build} && %{defined rhel} && 0%{?rhel} < 10
+%global cfg_file_content %{cfg_file_content} -gdwarf-4 -g0
+%endif
+
+%if %{defined gts_version}
+%global cfg_file_content %{cfg_file_content} --gcc-install-dir=/opt/rh/gcc-toolset-%{gts_version}/root/%{_exec_prefix}/lib/gcc/%{_target_cpu}-redhat-linux/%{gts_version}
+%endif
+
+# Already use the new clang config file for the current build. This ensures
+# consistency between the runtimes and non-runtimes builds and makes sure that
+# the new configuration will work without going through a rebuild cycle.
+# Don't do this on RHEL 8, which does not build using clang.
+%if %{defined gts_version} && 0%{?rhel} != 8
+echo "%{cfg_file_content}" > /tmp/clang.cfg
+%global optflags  %{optflags} --config /tmp/clang.cfg
 %endif
 
 # Copy CFLAGS into ASMFLAGS, so -fcf-protection is used when compiling assembly files.
@@ -875,7 +1169,7 @@ export ASMFLAGS="%{build_cflags}"
 %endif
 # Disable dwz on aarch64, because it takes a huge amount of time to decide not to optimize things.
 # This is copied from clang.
-%ifarch aarch64
+%ifarch aarch64 riscv64
 %define _find_debuginfo_dwz_opts %{nil}
 %endif
 
@@ -920,12 +1214,8 @@ popd
 	-DCLANG_LINK_CLANG_DYLIB=ON \\\
 	-DCLANG_PLUGIN_SUPPORT:BOOL=ON \\\
 	-DCLANG_REPOSITORY_STRING="%{?dist_vendor} %{version}-%{release}" \\\
-	-DLLVM_EXTERNAL_CLANG_TOOLS_EXTRA_SOURCE_DIR=../clang-tools-extra
-%if %{with compat_build}
-	%global cmake_config_args %{cmake_config_args} -DCLANG_RESOURCE_DIR=../../../lib/clang/%{maj_ver}
-%else
-	%global cmake_config_args %{cmake_config_args} -DCLANG_RESOURCE_DIR=../lib/clang/%{maj_ver}
-%endif
+	-DLLVM_EXTERNAL_CLANG_TOOLS_EXTRA_SOURCE_DIR=../clang-tools-extra \\\
+	-DCLANG_RESOURCE_DIR=../../../lib/clang/%{maj_ver}
 #endregion clang options
 
 #region compiler-rt options
@@ -945,7 +1235,7 @@ popd
 # Configure sphinx:
 # Build man-pages but no HTML docs using sphinx
 %global cmake_config_args %{cmake_config_args} \\\
-	-DSPHINX_EXECUTABLE=%{_bindir}/sphinx-build-3 \\\
+	-DSPHINX_EXECUTABLE=/usr/bin/sphinx-build-3 \\\
 	-DSPHINX_OUTPUT_HTML:BOOL=OFF \\\
 	-DSPHINX_OUTPUT_MAN:BOOL=ON \\\
 	-DSPHINX_WARNINGS_AS_ERRORS=OFF
@@ -953,9 +1243,9 @@ popd
 
 #region lldb options
 %if %{with lldb}
-	%global cmake_config_args %{cmake_config_args} -DLLDB_DISABLE_CURSES:BOOL=OFF
-	%global cmake_config_args %{cmake_config_args} -DLLDB_DISABLE_LIBEDIT:BOOL=OFF
-	%global cmake_config_args %{cmake_config_args} -DLLDB_DISABLE_PYTHON:BOOL=OFF
+%if %{with compat_build}
+	%global cmake_config_args %{cmake_config_args} -DLLDB_ENABLE_PYTHON=OFF
+%endif
 %ifarch ppc64le
 	%global cmake_config_args %{cmake_config_args} -DLLDB_TEST_USER_ARGS=--skip-category=watchpoint
 %endif
@@ -967,6 +1257,34 @@ popd
 %endif
 #endregion lldb options
 
+#region libcxx options
+%if %{with libcxx}
+%global cmake_config_args %{cmake_config_args}  \\\
+	-DCMAKE_POSITION_INDEPENDENT_CODE=ON \\\
+	-DLIBCXX_INCLUDE_BENCHMARKS=OFF \\\
+	-DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON \\\
+	-DLIBCXX_ENABLE_ABI_LINKER_SCRIPT=ON \\\
+	-DLIBCXXABI_USE_LLVM_UNWINDER=OFF \\\
+	-DLIBUNWIND_INSTALL_INCLUDE_DIR=%{_includedir}/llvm-libunwind
+
+# If we don't set the .._INSTALL_LIBRARY_DIR variables,
+# the *.so files will be placed in a subdirectory that includes the triple
+%global cmake_config_args %{cmake_config_args}  \\\
+	-DLIBCXX_INSTALL_LIBRARY_DIR=%{_libdir} \\\
+	-DLIBCXXABI_INSTALL_LIBRARY_DIR=%{_libdir} \\\
+	-DLIBUNWIND_INSTALL_LIBRARY_DIR=%{_libdir}
+
+# If we don't adjust this, we will install into this unwanted location:
+# /usr/include/i686-redhat-linux-gnu/c++/v1/__config_site
+%global cmake_config_args %{cmake_config_args}  \\\
+  -DLIBCXX_INSTALL_INCLUDE_TARGET_DIR=%{_includedir}/c++/v1 \\\
+  -DLIBCXX_INSTALL_INCLUDE_DIR=%{_includedir}/c++/v1 \\\
+  -DLIBCXX_INSTALL_MODULES_DIR=%{_datadir}/libc++/v1 \\\
+  -DLIBCXXABI_INSTALL_INCLUDE_DIR=%{_includedir}/c++/v1
+
+%endif
+#endregion libcxx options
+
 #region llvm options
 %global cmake_config_args %{cmake_config_args}  \\\
 	-DLLVM_APPEND_VC_REV:BOOL=OFF \\\
@@ -975,7 +1293,6 @@ popd
 	-DLLVM_BUILD_RUNTIME:BOOL=ON \\\
 	-DLLVM_BUILD_TOOLS:BOOL=ON \\\
 	-DLLVM_BUILD_UTILS:BOOL=ON \\\
-	-DLLVM_COMMON_CMAKE_UTILS=%{install_datadir}/llvm/cmake \\\
 	-DLLVM_DEFAULT_TARGET_TRIPLE=%{llvm_triple} \\\
 	-DLLVM_DYLIB_COMPONENTS="all" \\\
 	-DLLVM_ENABLE_FFI:BOOL=ON \\\
@@ -987,7 +1304,7 @@ popd
 	-DLLVM_ENABLE_ZSTD:BOOL=FORCE_ON \\\
 	-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=%{experimental_targets_to_build} \\\
 	-DLLVM_INCLUDE_BENCHMARKS=OFF \\\
-	-DLLVM_INCLUDE_EXAMPLES:BOOL=ON \\\
+	-DLLVM_INCLUDE_EXAMPLES:BOOL=OFF \\\
 	-DLLVM_INCLUDE_TOOLS:BOOL=ON \\\
 	-DLLVM_INCLUDE_UTILS:BOOL=ON \\\
 	-DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=OFF \\\
@@ -999,11 +1316,31 @@ popd
 	-DLLVM_UTILS_INSTALL_DIR:PATH=bin
 #endregion llvm options
 
+#region mlir options
+%if %{with mlir}
+%global cmake_config_args %{cmake_config_args} \\\
+        -DMLIR_INCLUDE_DOCS:BOOL=ON \\\
+        -DMLIR_INCLUDE_TESTS:BOOL=ON \\\
+        -DMLIR_INCLUDE_INTEGRATION_TESTS:BOOL=OFF \\\
+        -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF \\\
+        -DMLIR_BUILD_MLIR_C_DYLIB=ON \\\
+        -DMLIR_ENABLE_BINDINGS_PYTHON:BOOL=ON
+%endif
+#endregion mlir options
+
 #region openmp options
 %global cmake_config_args %{cmake_config_args} \\\
 	-DOPENMP_INSTALL_LIBDIR=%{unprefixed_libdir} \\\
 	-DLIBOMP_INSTALL_ALIASES=OFF
 #endregion openmp options
+
+#region polly options
+%if %{with polly}
+%global cmake_config_args %{cmake_config_args} \\\
+  -DLLVM_POLLY_LINK_INTO_TOOLS=OFF
+%endif
+#endregion polly options
+
 
 #region test options
 %global cmake_config_args %{cmake_config_args} \\\
@@ -1047,14 +1384,6 @@ popd
 	%global cmake_config_args %{cmake_config_args} -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="%{optflags} -DNDEBUG"
 %endif
 
-%if %{without compat_build}
-%if 0%{?__isa_bits} == 64
-	%global cmake_config_args %{cmake_config_args} -DLLVM_LIBDIR_SUFFIX=64
-%else
-	%global cmake_config_args %{cmake_config_args} -DLLVM_LIBDIR_SUFFIX=
-%endif
-%endif
-
 %if %{with gold}
 	%global cmake_config_args %{cmake_config_args} -DLLVM_BINUTILS_INCDIR=%{_includedir}
 %endif
@@ -1072,7 +1401,12 @@ popd
 %endif
 
 %if 0%{?rhel} == 8
+%ifnarch s390x
+	# This option uses the NUMBER_OF_LOGICAL_CORES query in CMake which doesn't
+	# work on s390x.
+	# https://gitlab.kitware.com/cmake/cmake/-/issues/26619
 	%global cmake_config_args %{cmake_config_args} -DLLVM_RAM_PER_COMPILE_JOB=2048
+%endif
 %endif
 #endregion misc options
 
@@ -1094,6 +1428,13 @@ fi
 # Also build libclang-cpp.so separately to avoid OOM errors.
 # This is to fix occasional OOM errors on the ppc64le COPR builders.
 %cmake_build --target libclang-cpp.so
+
+# Same for the three large MLIR dylibs.
+%if %{with mlir}
+%cmake_build --target libMLIR.so
+%cmake_build --target libMLIR-C.so
+%cmake_build --target libMLIRPythonCAPI.so
+%endif
 
 %cmake_build
 
@@ -1167,9 +1508,6 @@ install %{build_libdir}/libLLVMTestingAnnotations.a %{buildroot}%{install_libdir
 
 %if %{without compat_build}
 
-# Fix some man pages
-ln -s llvm-config.1 %{buildroot}%{_mandir}/man1/llvm-config%{exec_suffix}-%{__isa_bits}.1
-
 %if %{with gold}
 # Add symlink to lto plugin in the binutils plugin directory.
 %{__mkdir_p} %{buildroot}%{_libdir}/bfd-plugins/
@@ -1184,17 +1522,10 @@ cat >> %{buildroot}%{_sysconfdir}/ld.so.conf.d/%{pkg_name_llvm}-%{_arch}.conf <<
 %{install_libdir}
 EOF
 
-# Add version suffix to man pages and move them to mandir.
-mkdir -p %{buildroot}/%{_mandir}/man1
-for f in %{build_install_prefix}/share/man/man1/*; do
-  filename=`basename $f | cut -f 1 -d '.'`
-  mv $f %{buildroot}%{_mandir}/man1/$filename%{exec_suffix}.1
-done
-
 %endif
 
-mkdir -p %{buildroot}%{pkg_datadir}/llvm/cmake
-cp -Rv cmake/* %{buildroot}%{pkg_datadir}/llvm/cmake
+mkdir -p %{buildroot}%{install_datadir}/llvm-cmake
+cp -Rv cmake/* %{buildroot}%{install_datadir}/llvm-cmake
 
 # Install a placeholder to redirect users of the formerly shipped
 # HTML documentation to the upstream HTML documentation.
@@ -1229,8 +1560,8 @@ EOF
 
 #region CLANG installation
 
-# Add a symlink in /usr/bin to clang-format-diff
-ln -s %{install_datadir}/clang/clang-format-diff.py %{buildroot}%{install_bindir}/clang-format-diff
+# Add a symlink in bindir to clang-format-diff
+ln -s ../share/clang/clang-format-diff.py %{buildroot}%{install_bindir}/clang-format-diff
 
 # File in the macros file for other packages to use.  We are not doing this
 # in the compat package, because the version macros would # conflict with
@@ -1252,7 +1583,7 @@ install -p -m644 clang/bindings/python/clang/* %{buildroot}%{python3_sitelib}/cl
 %py_byte_compile %{__python3} %{buildroot}%{python3_sitelib}/clang
 
 # install scanbuild-py to python sitelib.
-mv %{buildroot}%{_prefix}/lib/{libear,libscanbuild} %{buildroot}%{python3_sitelib}
+mv %{buildroot}%{install_libdir}/{libear,libscanbuild} %{buildroot}%{python3_sitelib}
 # Cannot use {libear,libscanbuild} style expansion in py_byte_compile.
 %py_byte_compile %{__python3} %{buildroot}%{python3_sitelib}/libear
 %py_byte_compile %{__python3} %{buildroot}%{python3_sitelib}/libscanbuild
@@ -1260,37 +1591,22 @@ mv %{buildroot}%{_prefix}/lib/{libear,libscanbuild} %{buildroot}%{python3_siteli
 # Move emacs integration files to the correct directory
 mkdir -p %{buildroot}%{_emacs_sitestartdir}
 for f in clang-format.el clang-include-fixer.el; do
-mv %{buildroot}{%{_datadir}/clang,%{_emacs_sitestartdir}}/$f
+mv %{buildroot}{%{install_datadir}/clang,%{_emacs_sitestartdir}}/$f
 done
-%if %{maj_ver} < 20
-mv %{buildroot}{%{_datadir}/clang,%{_emacs_sitestartdir}}/clang-rename.el
-%endif
-
-# Add clang++-{version} symlink
-ln -s clang++ %{buildroot}%{_bindir}/clang++-%{maj_ver}
 
 %else
 
-# Fix permission
-chmod u-x %{buildroot}%{_mandir}/man1/scan-build%{exec_suffix}.1*
-
 # Not sure where to put these python modules for the compat build.
 rm -Rf %{buildroot}%{install_libdir}/{libear,libscanbuild}
+rm %{buildroot}%{install_bindir}/scan-build-py
 
 # Not sure where to put the emacs integration files for the compat build.
 rm -Rf %{buildroot}%{install_datadir}/clang/*.el
 
-# Add clang++-{version} symlink
-ln -s clang++  %{buildroot}%{install_bindir}/clang++-%{maj_ver}
-
 %endif
 
-# Create Manpage symlinks
-ln -s clang%{exec_suffix}.1.gz %{buildroot}%{_mandir}/man1/clang++%{exec_suffix}.1.gz
-%if %{without compat_build}
-ln -s clang.1.gz %{buildroot}%{_mandir}/man1/clang-%{maj_ver}.1.gz
-ln -s clang.1.gz %{buildroot}%{_mandir}/man1/clang++-%{maj_ver}.1.gz
-%endif
+# Create manpage symlink for clang++
+ln -s clang-%{maj_ver}.1 %{buildroot}%{install_mandir}/man1/clang++.1
 
 # Fix permissions of scan-view scripts
 chmod a+x %{buildroot}%{install_datadir}/scan-view/{Reporter.py,startfile.py}
@@ -1303,8 +1619,7 @@ rm -vf %{buildroot}%{install_datadir}/clang/clang-format-bbedit.applescript
 rm -vf %{buildroot}%{install_datadir}/clang/clang-format-sublime.py*
 
 # Remove unpackaged files
-rm -Rvf %{buildroot}%{install_datadir}/clang-doc/clang-doc-default-stylesheet.css
-rm -Rvf %{buildroot}%{install_datadir}/clang-doc/index.js
+rm -Rvf %{buildroot}%{install_datadir}/clang-doc
 
 # TODO: What are the Fedora guidelines for packaging bash autocomplete files?
 rm -vf %{buildroot}%{install_datadir}/clang/bash-autocomplete.sh
@@ -1317,19 +1632,6 @@ mkdir -p %{buildroot}%{_prefix}/lib/clang/%{maj_ver}/{bin,include,lib,share}/
 mkdir -p %{buildroot}%{_rpmmacrodir}/
 echo "%%clang%{maj_ver}_resource_dir %%{_prefix}/lib/clang/%{maj_ver}" >> %{buildroot}%{_rpmmacrodir}/macros.%{pkg_name_clang}
 
-# Install config file for clang
-%if %{maj_ver} >=18
-%global cfg_file_content --gcc-triple=%{_target_cpu}-redhat-linux
-
-# We want to use DWARF-5 on all snapshot builds.
-%if %{without snapshot_build} && %{defined rhel} && 0%{?rhel} < 10
-%global cfg_file_content %{cfg_file_content} -gdwarf-4 -g0
-%endif
-
-%if %{defined gts_version}
-%global cfg_file_content %{cfg_file_content} --gcc-install-dir=/opt/rh/gcc-toolset-%{gts_version}/root/%{_exec_prefix}/lib/gcc/%{_target_cpu}-redhat-linux/%{gts_version}
-%endif
-
 mkdir -p %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/
 echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang.cfg
 echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang++.cfg
@@ -1337,7 +1639,6 @@ echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/%{_t
 # On x86_64, install an additional set of config files so -m32 works.
 echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-clang.cfg
 echo " %{cfg_file_content}" >> %{buildroot}%{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-clang++.cfg
-%endif
 %endif
 
 
@@ -1377,13 +1678,9 @@ rm -rf %{buildroot}/%{install_datadir}/gdb
 # chmod go+w %{buildroot}/%{_datarootdir}/gdb/python/ompd/ompdModule.so
 # chmod +w %{buildroot}/%{_datarootdir}/gdb/python/ompd/ompdModule.so
 
-%ifnarch %{ix86} riscv64
+%ifnarch %{ix86}
 # Remove files that we don't package, yet.
-%if %{maj_ver} >= 20
 rm %{buildroot}%{install_bindir}/llvm-offload-device-info
-%else
-rm %{buildroot}%{install_bindir}/llvm-omp-device-info
-%endif
 rm %{buildroot}%{install_bindir}/llvm-omp-kernel-replay
 %endif
 
@@ -1395,9 +1692,9 @@ rm %{buildroot}%{install_bindir}/llvm-omp-kernel-replay
 # Required when using update-alternatives:
 # https://docs.fedoraproject.org/en-US/packaging-guidelines/Alternatives/
 touch %{buildroot}%{_bindir}/ld
-
-install -D -m 644 -t  %{buildroot}%{_mandir}/man1/ lld/docs/ld.lld.1
 %endif
+
+install -D -m 644 -t  %{buildroot}%{install_mandir}/man1/ lld/docs/ld.lld.1
 
 #endregion LLD installation
 
@@ -1405,50 +1702,112 @@ install -D -m 644 -t  %{buildroot}%{_mandir}/man1/ lld/docs/ld.lld.1
 %if %{with lldb}
 %multilib_fix_c_header --file %{install_includedir}/lldb/Host/Config.h
 
+%if %{without compat_build}
+# Move python package out of llvm prefix.
+mkdir -p %{buildroot}%{python3_sitearch}
+mv %{buildroot}%{install_prefix}/%{_lib}/python%{python3_version}/site-packages/lldb %{buildroot}/%{python3_sitearch}
+rmdir %{buildroot}%{install_prefix}/%{_lib}/python%{python3_version}/site-packages
+rmdir %{buildroot}%{install_prefix}/%{_lib}/python%{python3_version}
+
 # python: fix binary libraries location
-liblldb=$(basename $(readlink -e %{buildroot}%{_libdir}/liblldb.so))
-ln -vsf "../../../${liblldb}" %{buildroot}%{python3_sitearch}/lldb/_lldb.so
+liblldb=$(basename $(readlink -e %{buildroot}%{install_libdir}/liblldb.so))
+ln -vsf "../../../llvm%{maj_ver}/lib/${liblldb}" %{buildroot}%{python3_sitearch}/lldb/_lldb.so
 %py_byte_compile %{__python3} %{buildroot}%{python3_sitearch}/lldb
+%endif
 %endif
 #endregion LLDB installation
 
-%if %{with compat_build}
-# Add version suffix to binaries. Do this at the end so it includes any
-# additional binaries that may be been added by other steps.
-for f in %{buildroot}/%{install_bindir}/*; do
+#region mlir installation
+%if %{with mlir}
+mkdir -p %{buildroot}/%{python3_sitearch}
+mv %{buildroot}%{install_prefix}/python_packages/mlir_core/mlir %{buildroot}/%{python3_sitearch}
+# These directories should be empty now.
+rmdir %{buildroot}%{install_prefix}/python_packages/mlir_core %{buildroot}%{install_prefix}/python_packages
+# Unneeded files.
+rm -rf %{buildroot}%{install_prefix}/src/python
+%endif
+#endregion mlir installation
+
+#region libcxx installation
+%if %{with libcxx}
+# We can't install the unversionned path on default location because that would conflict with
+# https://src.fedoraproject.org/rpms/libunwind
+#
+# The versionned path has a different soname (libunwind.so.1 compared to
+# libunwind.so.8) so they can live together in %%{_libdir}
+#
+# ABI wise, even though llvm-libunwind's library is named libunwind, it doesn't
+# have the exact same ABI as gcc's libunwind (it actually provides a subset).
+rm %{buildroot}%{_libdir}/libunwind.so
+mkdir -p %{buildroot}/%{_libdir}/llvm-unwind/
+
+pushd %{buildroot}/%{_libdir}/llvm-unwind
+ln -s ../libunwind.so.1.0 libunwind.so
+popd
+%endif
+#endregion libcxx installation
+
+#region BOLT installation
+# We don't ship libLLVMBOLT*.a
+rm -f %{buildroot}%{install_libdir}/libLLVMBOLT*.a
+#endregion BOLT installation
+
+# Create symlinks from the system install prefix to the llvm install prefix.
+# Do this at the end so it includes any files added by preceding steps.
+mkdir -p %{buildroot}%{_bindir}
+for f in %{buildroot}%{install_bindir}/*; do
   filename=`basename $f`
-  if echo $filename | grep -e '%{maj_ver}'; then
+  if [[ "$filename" == "clang-%{maj_ver}" ]]; then
     continue
   fi
-  ln -s ../../%{install_bindir}/$filename %{buildroot}/%{_bindir}/$filename%{exec_suffix}
+  # Add symlink for binaries with version suffix.
+  ln -s ../../%{install_bindir}/$filename %{buildroot}/%{_bindir}/$filename-%{maj_ver}
+  # For non-compat builds, also add a symlink without version suffix.
+  %if %{without compat_build}
+    ln -s ../../%{install_bindir}/$filename %{buildroot}/%{_bindir}/$filename
+  %endif
 done
-%endif
 
-# llvm-config special casing. llvm-config is managed by update-alternatives.
-# the original file must remain available for compatibility with the CMake
-# infrastructure. Without compat, cmake points to the symlink, with compat it
-# points to the original file.
+# Move man pages to system install prefix.
+mkdir -p %{buildroot}%{_mandir}/man1
+for f in %{buildroot}%{install_mandir}/man1/*; do
+  filename=`basename $f`
+  filename=${filename%.1}
+  mv $f %{buildroot}%{_mandir}/man1/$filename-%{maj_ver}.1
+  %if %{without compat_build}
+    ln -s $filename-%{maj_ver}.1 %{buildroot}%{_mandir}/man1/$filename.1
+  %endif
+done
+rmdir %{buildroot}%{install_mandir}/man1
+rmdir %{buildroot}%{install_mandir}
 
 %if %{without compat_build}
+# We don't create directory symlinks, because RPM does not support
+# switching between a directory and a symlink, causing upgrade/downgrade issues.
+# Instead, recursively copy the directories while creating symlinks.
+copy_with_relative_symlinks() {
+    local src="$1"
+    local dest="$2"
+    mkdir -p "$dest"
 
-mv %{buildroot}/%{install_bindir}/llvm-config %{buildroot}/%{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
-# We still maintain a versionned symlink for consistency across llvm versions.
-# This is specific to the non-compat build and matches the exec prefix for
-# compat builds. An isa-agnostic versionned symlink is also maintained in the (un)install
-# steps.
-(cd %{buildroot}/%{install_bindir} ; ln -s llvm-config%{exec_suffix}-%{__isa_bits} llvm-config-%{maj_ver}-%{__isa_bits} )
-# ghost presence
-touch %{buildroot}%{_bindir}/llvm-config-%{maj_ver}
+    # Change to source directory to simplify relative paths
+    (cd "$src" && \
+        find * -type d -exec mkdir -p "$dest/{}" \; && \
+        find * \( -type f -o -type l \) -exec ln -s --relative "$src/{}" "$dest/{}" \;)
+}
 
-%else
-
-rm %{buildroot}%{_bindir}/llvm-config%{exec_suffix}
-(cd %{buildroot}/%{install_bindir} ; ln -s llvm-config llvm-config%{exec_suffix}-%{__isa_bits} )
-
+# Add symlinks for libraries.
+copy_with_relative_symlinks %{buildroot}%{install_libdir} %{buildroot}%{_libdir}
+copy_with_relative_symlinks %{buildroot}%{install_libexecdir} %{buildroot}%{_libexecdir}
+copy_with_relative_symlinks %{buildroot}%{install_includedir} %{buildroot}%{_includedir}
+copy_with_relative_symlinks %{buildroot}%{install_datadir} %{buildroot}%{_datadir}
 %endif
 
-# ghost presence
-touch %{buildroot}%{_bindir}/llvm-config%{exec_suffix}
+# ghost presence for llvm-config, managed by alternatives.
+touch %{buildroot}%{_bindir}/llvm-config-%{maj_ver}
+%if %{without compat_build}
+touch %{buildroot}%{_bindir}/llvm-config
+%endif
 
 %if %{with bundle_compat_lib}
 install -m 0755 ../llvm-compat-libs/lib/libLLVM.so.%{compat_maj_ver}* %{buildroot}%{_libdir}
@@ -1472,17 +1831,14 @@ rm llvm/test/tools/gold/PowerPC/mtriple.ll
 # TODO(kkleine): Add this to XFAIL instead?
 rm llvm/test/tools/dsymutil/X86/swift-interface.test
 
-%if %{with check}
-
 cd llvm
+
+%if %{with check}
 
 #region Helper functions
 # Call this function before setting up a next component to test.
 function reset_test_opts()
 {
-    # Some libraries will not be found if we don't set this
-    export LD_LIBRARY_PATH="%{buildroot}/%{install_libdir}:%{buildroot}/%{_libdir}";
-
     # See https://llvm.org/docs/CommandGuide/lit.html#general-options
     export LIT_OPTS="-vv --time-tests"
 
@@ -1503,6 +1859,9 @@ function reset_test_opts()
     # Set for filtering out unit tests.
     # See http://google.github.io/googletest/advanced.html#running-a-subset-of-the-tests
     unset GTEST_FILTER
+
+    # Some test (e.g. mlir) require this to be set.
+    unset PYTHONPATH
 }
 
 # Convert array of test names into a regex.
@@ -1529,6 +1888,21 @@ function test_list_to_regex()
     # Add enclosing parenthesis
     echo "($arr)"
 }
+
+# Similar to test_list_to_regex() except that this function exports
+# the LIT_FILTER_OUT if there are tests in the given list.
+# If there are no tests, the LIT_FILTER_OUT is unset in order to
+# avoid issues with the llvm test system.
+function adjust_lit_filter_out()
+{
+  local -n arr=$1
+  local res=$(test_list_to_regex test_list_filter_out)
+  if [[ "$res" != "()" ]]; then
+    export LIT_FILTER_OUT=$res
+  else
+    unset LIT_FILTER_OUT
+  fi
+}
 #endregion Helper functions
 
 #region Test LLVM lit
@@ -1547,13 +1921,6 @@ export LIT_XFAIL="tools/UpdateTestChecks"
 #region Test CLANG
 reset_test_opts
 export LIT_XFAIL="$LIT_XFAIL;clang/test/CodeGen/profile-filter.c"
-%ifarch riscv64
-export LIT_XFAIL="$LIT_XFAIL;clang/test/OpenMP/declare_variant_device_isa_codegen_1.c"
-export LIT_XFAIL="$LIT_XFAIL;OpenMP/declare_variant_device_isa_codegen_1.c"
-test_list_filter_out+=("Clang :: OpenMP/declare_variant_device_isa_codegen_1.c")
-%endif
-
-export LIT_FILTER_OUT=$(test_list_to_regex test_list_filter_out)
 %cmake_build --target check-clang || true
 #endregion Test Clang
 
@@ -1610,6 +1977,7 @@ test_list_filter_out+=("libomp :: affinity/kmp-abs-hw-subset.c")
 test_list_filter_out+=("libomp :: parallel/bug63197.c")
 test_list_filter_out+=("libomp :: tasking/issue-69733.c")
 test_list_filter_out+=("libarcher :: races/task-taskgroup-unrelated.c")
+test_list_filter_out+=("libarcher :: races/task-taskwait-nested.c")
 
 # These tests fail more often than not, but not always.
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_GELTGT_int.c")
@@ -1617,13 +1985,18 @@ test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_GTGEGT_int.c
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_many_LTLEGE_int.c")
 test_list_filter_out+=("libomp :: worksharing/for/omp_collapse_one_int.c")
 
+# The following tests have been failing intermittently.
+# Issue upstream: https://github.com/llvm/llvm-project/issues/127796
+test_list_filter_out+=("libarcher :: races/task-two.c")
+test_list_filter_out+=("libarcher :: races/lock-nested-unrelated.c")
+
 %ifarch s390x
 test_list_filter_out+=("libomp :: flush/omp_flush.c")
 test_list_filter_out+=("libomp :: worksharing/for/omp_for_schedule_guided.c")
 %endif
 
 %ifarch aarch64 s390x
-# The following test has been failling intermittently on aarch64 and s390x.
+# The following test has been failing intermittently on aarch64 and s390x.
 # Re-enable it after https://github.com/llvm/llvm-project/issues/117773
 # gets fixed.
 test_list_filter_out+=("libarcher :: races/taskwait-depend.c")
@@ -1669,7 +2042,6 @@ export LIT_XFAIL="$LIT_XFAIL;races/lock-unrelated.c"
 export LIT_XFAIL="$LIT_XFAIL;races/parallel-simple.c"
 export LIT_XFAIL="$LIT_XFAIL;races/task-dependency.c"
 export LIT_XFAIL="$LIT_XFAIL;races/task-taskgroup-unrelated.c"
-export LIT_XFAIL="$LIT_XFAIL;races/task-taskwait-nested.c"
 export LIT_XFAIL="$LIT_XFAIL;races/task-two.c"
 export LIT_XFAIL="$LIT_XFAIL;races/taskwait-depend.c"
 export LIT_XFAIL="$LIT_XFAIL;reduction/parallel-reduction-nowait.c"
@@ -1728,28 +2100,15 @@ export LIT_XFAIL="$LIT_XFAIL;offloading/thread_state_1.c"
 export LIT_XFAIL="$LIT_XFAIL;offloading/thread_state_2.c"
 %endif
 
-%ifarch riscv64
-export LIT_XFAIL="$LIT_XFAIL;affinity/kmp-affinity.c"
-export LIT_XFAIL="$LIT_XFAIL;affinity/kmp-hw-subset.c"
-export LIT_XFAIL="$LIT_XFAIL;affinity/omp-places.c"
-export LIT_XFAIL="$LIT_XFAIL;ompt/misc/control_tool.c"
-export LIT_XFAIL="$LIT_XFAIL;ompt/synchronization/barrier/explicit.c"
-export LIT_XFAIL="$LIT_XFAIL;ompt/synchronization/critical.c"
-export LIT_XFAIL="$LIT_XFAIL;ompt/synchronization/flush.c"
-export LIT_XFAIL="$LIT_XFAIL;ompt/synchronization/ordered.c"
-export LIT_XFAIL="$LIT_XFAIL;ompt/synchronization/taskgroup.c"
-export LIT_XFAIL="$LIT_XFAIL;ompt/synchronization/taskwait.c"
-%endif
-
-export LIT_FILTER_OUT=$(test_list_to_regex test_list_filter_out)
+adjust_lit_filter_out test_list_filter_out
 
 %if 0%{?rhel}
 # libomp tests are often very slow on s390x brew builders
-%ifnarch s390x riscv64
+%ifnarch s390x
 %cmake_build --target check-openmp
 %endif
 %else
-%cmake_build --target check-openmp
+%cmake_build --target check-openmp || true
 %endif
 #endregion Test OPENMP
 
@@ -1774,17 +2133,91 @@ export LIT_FILTER_OUT=$(test_list_to_regex test_list_filter_out)
 %endif
 %endif
 
+#region test libcxx
+# TODO(kkleine): Fedora rawhide didn't contain check runs. Evaluate if we want them here.
+#endregion test libcxx
+
 
 #region Test LLD
 reset_test_opts
 %cmake_build --target check-lld || true
 #endregion Test LLD
 
+#region Test MLIR
+%if %{with mlir}
+reset_test_opts
+
+%ifarch s390x
+# s390x does not support half-float
+test_list_filter_out+=("MLIR :: python/ir/array_attributes.py")
+test_list_filter_out+=("MLIR :: python/execution_engine.py")
+%endif
+
+%ifarch ppc64le
+# Medium code model can result in relocation failures, see:
+# https://github.com/llvm/llvm-project/issues/129499
+
+# Additionally, support for converting to/from fp16 was added on
+# Power9 processors (aka. Power ISA 3.0). Even if the above issue
+# is fixed, avoid running execution_engine.py on servers that do
+# not support this ISA level, using the following condition:
+# if ! LD_SHOW_AUXV=1 /bin/true | grep -q arch_3_00; then
+test_list_filter_out+=("MLIR :: python/execution_engine.py")
+test_list_filter_out+=("MLIR :: python/multithreaded_tests.py")
+%endif
+
+adjust_lit_filter_out test_list_filter_out
+
+export PYTHONPATH=%{buildroot}/%{python3_sitearch}
+%cmake_build --target check-mlir || true
+%endif
+#endregion Test MLIR
+
+#region BOLT tests
+%if %{with build_bolt}
+reset_test_opts
+
+# Beginning with LLVM 20 this test has the "non-root-user" requirement
+# and then the test should pass. But now it is flaky, hence we can only
+# filter it out.
+test_list_filter_out+=("BOLT :: unreadable-profile.test")
+
+%ifarch aarch64
+# Failing test cases on aarch64
+# TODO(kkleine): The following used to fail on aarch64 but passed today.
+#export LIT_XFAIL="$LIT_XFAIL;cache+-deprecated.test"
+#export LIT_XFAIL="$LIT_XFAIL;bolt-icf.test"
+#export LIT_XFAIL="$LIT_XFAIL;R_ABS.pic.lld.cpp"
+
+# The following tests require LSE in order to run.
+# More info at: https://github.com/llvm/llvm-project/issues/86485
+if ! grep -q atomics /proc/cpuinfo; then
+  test_list_filter_out+=("BOLT :: runtime/AArch64/basic-instrumentation.test")
+  test_list_filter_out+=("BOLT :: runtime/AArch64/hook-fini.test")
+  test_list_filter_out+=("BOLT :: runtime/AArch64/instrumentation-ind-call.c")
+  test_list_filter_out+=("BOLT :: runtime/exceptions-instrumentation.test")
+  test_list_filter_out+=("BOLT :: runtime/instrumentation-indirect-2.c")
+  test_list_filter_out+=("BOLT :: runtime/pie-exceptions-split.test")
+fi
+%endif
+
+%cmake_build --target check-bolt
+%endif
+#endregion BOLT tests
+
+#region polly tests
+%if %{with polly}
+reset_test_opts
+%cmake_build --target check-polly
+%endif
+#endregion polly tests
+
+
 %endif
 
 %if %{with snapshot_build}
 # Do this here instead of in install so the check targets are also included.
-cp %{_vpath_builddir}/.ninja_log %{buildroot}%{pkg_datadir}
+cp %{_vpath_builddir}/.ninja_log %{buildroot}%{_datadir}
 %endif
 
 #endregion check
@@ -1797,9 +2230,9 @@ cp %{_vpath_builddir}/.ninja_log %{buildroot}%{pkg_datadir}
 %endif
 
 %post -n %{pkg_name_llvm}-devel
-%{_sbindir}/update-alternatives --install %{_bindir}/llvm-config%{exec_suffix} llvm-config%{exec_suffix} %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits} %{__isa_bits}
+update-alternatives --install %{_bindir}/llvm-config-%{maj_ver} llvm-config-%{maj_ver} %{install_bindir}/llvm-config %{__isa_bits}
 %if %{without compat_build}
-%{_sbindir}/update-alternatives --install %{_bindir}/llvm-config-%{maj_ver} llvm-config-%{maj_ver} %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits} %{__isa_bits}
+update-alternatives --install %{_bindir}/llvm-config llvm-config %{install_bindir}/llvm-config %{__isa_bits}
 
 # During the upgrade from LLVM 16 (F38) to LLVM 17 (F39), we found out the
 # main llvm-devel package was leaving entries in the alternatives system.
@@ -1807,14 +2240,14 @@ cp %{_vpath_builddir}/.ninja_log %{buildroot}%{pkg_datadir}
 for v in 14 15 16; do
   if [[ -e %{_bindir}/llvm-config-$v
         && "x$(%{_bindir}/llvm-config-$v --version | awk -F . '{ print $1 }')" != "x$v" ]]; then
-    %{_sbindir}/update-alternatives --remove llvm-config-$v %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
+    update-alternatives --remove llvm-config-$v %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
   fi
 done
 %endif
 
 %postun -n %{pkg_name_llvm}-devel
 if [ $1 -eq 0 ]; then
-  %{_sbindir}/update-alternatives --remove llvm-config%{exec_suffix} %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
+  update-alternatives --remove llvm-config%{exec_suffix} %{install_bindir}/llvm-config
 fi
 %if %{without compat_build}
 # When upgrading between minor versions (i.e. from x.y.1 to x.y.2), we must
@@ -1824,22 +2257,62 @@ fi
 # compat package.
 if [[ $1 -eq 0
       || "x$(%{_bindir}/llvm-config%{exec_suffix} --version | awk -F . '{ print $1 }')" != "x%{maj_ver}" ]]; then
-  %{_sbindir}/update-alternatives --remove llvm-config-%{maj_ver} %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
+  update-alternatives --remove llvm-config-%{maj_ver} %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
 fi
 %endif
 
 %if %{without compat_build}
 %post -n %{pkg_name_lld}
-%{_sbindir}/update-alternatives --install %{_bindir}/ld ld %{_bindir}/ld.lld 1
+update-alternatives --install %{_bindir}/ld ld %{_bindir}/ld.lld 1
 
 %postun -n %{pkg_name_lld}
 if [ $1 -eq 0 ] ; then
-  %{_sbindir}/update-alternatives --remove ld %{_bindir}/ld.lld
+  update-alternatives --remove ld %{_bindir}/ld.lld
 fi
 %endif
 #endregion misc
 
 #region files
+%define expand_bins() %{lua:
+  local bindir = rpm.expand("%{_bindir}")
+  local install_bindir = rpm.expand("%{install_bindir}")
+  local maj_ver = rpm.expand("%{maj_ver}")
+  for arg in rpm.expand("%*"):gmatch("%S+") do
+    print(install_bindir .. "/" .. arg .. "\\n")
+    print(bindir .. "/" .. arg .. "-" .. maj_ver .. "\\n")
+    if rpm.expand("%{without compat_build}") == "1" then
+      print(bindir .. "/" .. arg .. "\\n")
+    end
+  end
+}
+
+%define expand_mans() %{lua:
+  local mandir = rpm.expand("%{_mandir}")
+  local maj_ver = rpm.expand("%{maj_ver}")
+  for arg in rpm.expand("%*"):gmatch("%S+") do
+    print(mandir .. "/man1/" .. arg .. "-" .. maj_ver .. ".1.gz\\n")
+    if rpm.expand("%{without compat_build}") == "1" then
+      print(mandir .. "/man1/" .. arg .. ".1.gz\\n")
+    end
+  end
+}
+
+%define expand_generic(d:i:) %{lua:
+  local dir = rpm.expand("%{-d*}")
+  local install_dir = rpm.expand("%{-i*}")
+  for arg in rpm.expand("%*"):gmatch("%S+") do
+    print(install_dir .. "/" .. arg .. "\\n")
+    if rpm.expand("%{without compat_build}") == "1" then
+      print(dir .. "/" .. arg .. "\\n")
+    end
+  end
+}
+
+%define expand_libs() %{expand_generic -d %{_libdir} -i %{install_libdir}  %*}
+%define expand_libexecs() %{expand_generic -d %{_libexecdir} -i %{install_libexecdir} %*}
+%define expand_includes() %{expand_generic -d %{_includedir} -i %{install_includedir} %*}
+%define expand_datas() %{expand_generic -d %{_datadir} -i %{install_datadir} %*}
+
 #region LLVM lit files
 %if %{with python_lit}
 %files -n python%{python3_pkgversion}-lit
@@ -1853,276 +2326,189 @@ fi
 
 #region LLVM files
 
+%files -n %{pkg_name_llvm}-filesystem
+%dir %{install_prefix}
+%dir %{install_bindir}
+%dir %{install_includedir}
+%dir %{install_libdir}
+%dir %{install_libdir}/cmake
+%dir %{install_libexecdir}
+%dir %{install_datadir}
+
 %files -n %{pkg_name_llvm}
 %license llvm/LICENSE.TXT
-%exclude %{_mandir}/man1/llvm-config*
 
-%{_mandir}/man1/bugpoint%{exec_suffix}.1.gz
-%{_mandir}/man1/clang-tblgen%{exec_suffix}.1.gz
-%{_mandir}/man1/dsymutil%{exec_suffix}.1.gz
-%{_mandir}/man1/FileCheck%{exec_suffix}.1.gz
-%{_mandir}/man1/lit%{exec_suffix}.1.gz
-%{_mandir}/man1/llc%{exec_suffix}.1.gz
-%{_mandir}/man1/lldb-tblgen%{exec_suffix}.1.gz
-%{_mandir}/man1/lli%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-addr2line%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-ar%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-as%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-bcanalyzer%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-cov%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-cxxfilt%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-cxxmap%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-debuginfo-analyzer%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-diff%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-dis%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-dwarfdump%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-dwarfutil%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-exegesis%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-extract%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-ifs%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-install-name-tool%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-lib%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-libtool-darwin%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-link%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-lipo%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-locstats%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-mc%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-mca%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-nm%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-objcopy%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-objdump%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-opt-report%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-otool%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-pdbutil%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-profdata%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-profgen%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-ranlib%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-readelf%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-readobj%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-reduce%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-remarkutil%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-size%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-stress%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-strings%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-strip%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-symbolizer%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-tblgen%{exec_suffix}.1.gz
-%{_mandir}/man1/llvm-tli-checker%{exec_suffix}.1.gz
-%{_mandir}/man1/mlir-tblgen%{exec_suffix}.1.gz
-%{_mandir}/man1/opt%{exec_suffix}.1.gz
-%{_mandir}/man1/tblgen%{exec_suffix}.1.gz
-%if %{maj_ver} >= 20
-%{_mandir}/man1/llvm-cgdata%{exec_suffix}.1.gz
+%{expand_bins %{expand:
+    bugpoint
+    dsymutil
+    FileCheck
+    llc
+    lli
+    llvm-addr2line
+    llvm-ar
+    llvm-as
+    llvm-bcanalyzer
+    llvm-bitcode-strip
+    llvm-c-test
+    llvm-cat
+    llvm-cfi-verify
+    llvm-cgdata
+    llvm-cov
+    llvm-ctxprof-util
+    llvm-cvtres
+    llvm-cxxdump
+    llvm-cxxfilt
+    llvm-cxxmap
+    llvm-debuginfo-analyzer
+    llvm-debuginfod
+    llvm-debuginfod-find
+    llvm-diff
+    llvm-dis
+    llvm-dlltool
+    llvm-dwarfdump
+    llvm-dwarfutil
+    llvm-dwp
+    llvm-exegesis
+    llvm-extract
+    llvm-gsymutil
+    llvm-ifs
+    llvm-install-name-tool
+    llvm-jitlink
+    llvm-jitlink-executor
+    llvm-lib
+    llvm-libtool-darwin
+    llvm-link
+    llvm-lipo
+    llvm-lto
+    llvm-lto2
+    llvm-mc
+    llvm-mca
+    llvm-ml
+    llvm-modextract
+    llvm-mt
+    llvm-nm
+    llvm-objcopy
+    llvm-objdump
+    llvm-opt-report
+    llvm-otool
+    llvm-pdbutil
+    llvm-PerfectShuffle
+    llvm-profdata
+    llvm-profgen
+    llvm-ranlib
+    llvm-rc
+    llvm-readelf
+    llvm-readobj
+    llvm-readtapi
+    llvm-reduce
+    llvm-remarkutil
+    llvm-rtdyld
+    llvm-sim
+    llvm-size
+    llvm-split
+    llvm-stress
+    llvm-strings
+    llvm-strip
+    llvm-symbolizer
+    llvm-tblgen
+    llvm-tli-checker
+    llvm-undname
+    llvm-windres
+    llvm-xray
+    reduce-chunk-list
+    obj2yaml
+    opt
+    sancov
+    sanstats
+    split-file
+    UnicodeNameMappingGenerator
+    verify-uselistorder
+    yaml2obj
+}}
+
+%if %{maj_ver} >= 21
+%{expand_bins %{expand:
+    llvm-ml64
+}}
 %endif
 
-%{install_bindir}/bugpoint
-%{install_bindir}/dsymutil
-%{install_bindir}/FileCheck
-%{install_bindir}/llc
-%{install_bindir}/lli
-%{install_bindir}/llvm-addr2line
-%{install_bindir}/llvm-ar
-%{install_bindir}/llvm-as
-%{install_bindir}/llvm-bcanalyzer
-%{install_bindir}/llvm-bitcode-strip
-%{install_bindir}/llvm-c-test
-%{install_bindir}/llvm-cat
-%{install_bindir}/llvm-cfi-verify
-%{install_bindir}/llvm-cov
-%{install_bindir}/llvm-cvtres
-%{install_bindir}/llvm-cxxdump
-%{install_bindir}/llvm-cxxfilt
-%{install_bindir}/llvm-cxxmap
-%{install_bindir}/llvm-debuginfo-analyzer
-%{install_bindir}/llvm-debuginfod
-%{install_bindir}/llvm-debuginfod-find
-%{install_bindir}/llvm-diff
-%{install_bindir}/llvm-dis
-%{install_bindir}/llvm-dlltool
-%{install_bindir}/llvm-dwarfdump
-%{install_bindir}/llvm-dwarfutil
-%{install_bindir}/llvm-dwp
-%{install_bindir}/llvm-exegesis
-%{install_bindir}/llvm-extract
-%{install_bindir}/llvm-gsymutil
-%{install_bindir}/llvm-ifs
-%{install_bindir}/llvm-install-name-tool
-%{install_bindir}/llvm-jitlink
-%{install_bindir}/llvm-jitlink-executor
-%{install_bindir}/llvm-lib
-%{install_bindir}/llvm-libtool-darwin
-%{install_bindir}/llvm-link
-%{install_bindir}/llvm-lipo
-%{install_bindir}/llvm-lto
-%{install_bindir}/llvm-lto2
-%{install_bindir}/llvm-mc
-%{install_bindir}/llvm-mca
-%{install_bindir}/llvm-ml
-%{install_bindir}/llvm-modextract
-%{install_bindir}/llvm-mt
-%{install_bindir}/llvm-nm
-%{install_bindir}/llvm-objcopy
-%{install_bindir}/llvm-objdump
-%{install_bindir}/llvm-opt-report
-%{install_bindir}/llvm-otool
-%{install_bindir}/llvm-pdbutil
-%{install_bindir}/llvm-PerfectShuffle
-%{install_bindir}/llvm-profdata
-%{install_bindir}/llvm-profgen
-%{install_bindir}/llvm-ranlib
-%{install_bindir}/llvm-rc
-%{install_bindir}/llvm-readelf
-%{install_bindir}/llvm-readobj
-%{install_bindir}/llvm-readtapi
-%{install_bindir}/llvm-reduce
-%{install_bindir}/llvm-remarkutil
-%{install_bindir}/llvm-rtdyld
-%{install_bindir}/llvm-sim
-%{install_bindir}/llvm-size
-%{install_bindir}/llvm-split
-%{install_bindir}/llvm-stress
-%{install_bindir}/llvm-strings
-%{install_bindir}/llvm-strip
-%{install_bindir}/llvm-symbolizer
-%{install_bindir}/llvm-tblgen
-%{install_bindir}/llvm-tli-checker
-%{install_bindir}/llvm-undname
-%{install_bindir}/llvm-windres
-%{install_bindir}/llvm-xray
-%{install_bindir}/reduce-chunk-list
-%{install_bindir}/obj2yaml
-%{install_bindir}/opt
-%{install_bindir}/sancov
-%{install_bindir}/sanstats
-%{install_bindir}/split-file
-%{install_bindir}/UnicodeNameMappingGenerator
-%{install_bindir}/verify-uselistorder
-%{install_bindir}/yaml2obj
-%if %{maj_ver} >= 20
-%{install_bindir}/llvm-cgdata
-%{install_bindir}/llvm-ctxprof-util
-%endif
+%{expand_mans %{expand:
+    bugpoint
+    clang-tblgen
+    dsymutil
+    FileCheck
+    lit
+    llc
+    lldb-tblgen
+    lli
+    llvm-addr2line
+    llvm-ar
+    llvm-as
+    llvm-bcanalyzer
+    llvm-cgdata
+    llvm-cov
+    llvm-cxxfilt
+    llvm-cxxmap
+    llvm-debuginfo-analyzer
+    llvm-diff
+    llvm-dis
+    llvm-dwarfdump
+    llvm-dwarfutil
+    llvm-exegesis
+    llvm-extract
+    llvm-ifs
+    llvm-install-name-tool
+    llvm-lib
+    llvm-libtool-darwin
+    llvm-link
+    llvm-lipo
+    llvm-locstats
+    llvm-mc
+    llvm-mca
+    llvm-nm
+    llvm-objcopy
+    llvm-objdump
+    llvm-opt-report
+    llvm-otool
+    llvm-pdbutil
+    llvm-profdata
+    llvm-profgen
+    llvm-ranlib
+    llvm-readelf
+    llvm-readobj
+    llvm-reduce
+    llvm-remarkutil
+    llvm-size
+    llvm-stress
+    llvm-strings
+    llvm-strip
+    llvm-symbolizer
+    llvm-tblgen
+    llvm-tli-checker
+    mlir-tblgen
+    opt
+    tblgen
+}}
 
-
-%if %{with compat_build}
-# This is for all the binaries with the version suffix.
-%{_bindir}/bugpoint%{exec_suffix}
-%{_bindir}/dsymutil%{exec_suffix}
-%{_bindir}/FileCheck%{exec_suffix}
-%{_bindir}/llc%{exec_suffix}
-%{_bindir}/lli%{exec_suffix}
-%{_bindir}/llvm-addr2line%{exec_suffix}
-%{_bindir}/llvm-ar%{exec_suffix}
-%{_bindir}/llvm-as%{exec_suffix}
-%{_bindir}/llvm-bcanalyzer%{exec_suffix}
-%{_bindir}/llvm-bitcode-strip%{exec_suffix}
-%{_bindir}/llvm-c-test%{exec_suffix}
-%{_bindir}/llvm-cat%{exec_suffix}
-%{_bindir}/llvm-cfi-verify%{exec_suffix}
-%{_bindir}/llvm-cov%{exec_suffix}
-%{_bindir}/llvm-cvtres%{exec_suffix}
-%{_bindir}/llvm-cxxdump%{exec_suffix}
-%{_bindir}/llvm-cxxfilt%{exec_suffix}
-%{_bindir}/llvm-cxxmap%{exec_suffix}
-%{_bindir}/llvm-debuginfo-analyzer%{exec_suffix}
-%{_bindir}/llvm-debuginfod%{exec_suffix}
-%{_bindir}/llvm-debuginfod-find%{exec_suffix}
-%{_bindir}/llvm-diff%{exec_suffix}
-%{_bindir}/llvm-dis%{exec_suffix}
-%{_bindir}/llvm-dlltool%{exec_suffix}
-%{_bindir}/llvm-dwarfdump%{exec_suffix}
-%{_bindir}/llvm-dwarfutil%{exec_suffix}
-%{_bindir}/llvm-dwp%{exec_suffix}
-%{_bindir}/llvm-exegesis%{exec_suffix}
-%{_bindir}/llvm-extract%{exec_suffix}
-%{_bindir}/llvm-gsymutil%{exec_suffix}
-%{_bindir}/llvm-ifs%{exec_suffix}
-%{_bindir}/llvm-install-name-tool%{exec_suffix}
-%{_bindir}/llvm-jitlink%{exec_suffix}
-%{_bindir}/llvm-jitlink-executor%{exec_suffix}
-%{_bindir}/llvm-lib%{exec_suffix}
-%{_bindir}/llvm-libtool-darwin%{exec_suffix}
-%{_bindir}/llvm-link%{exec_suffix}
-%{_bindir}/llvm-lipo%{exec_suffix}
-%{_bindir}/llvm-lto%{exec_suffix}
-%{_bindir}/llvm-lto2%{exec_suffix}
-%{_bindir}/llvm-mc%{exec_suffix}
-%{_bindir}/llvm-mca%{exec_suffix}
-%{_bindir}/llvm-ml%{exec_suffix}
-%{_bindir}/llvm-modextract%{exec_suffix}
-%{_bindir}/llvm-mt%{exec_suffix}
-%{_bindir}/llvm-nm%{exec_suffix}
-%{_bindir}/llvm-objcopy%{exec_suffix}
-%{_bindir}/llvm-objdump%{exec_suffix}
-%{_bindir}/llvm-opt-report%{exec_suffix}
-%{_bindir}/llvm-otool%{exec_suffix}
-%{_bindir}/llvm-pdbutil%{exec_suffix}
-%{_bindir}/llvm-PerfectShuffle%{exec_suffix}
-%{_bindir}/llvm-profdata%{exec_suffix}
-%{_bindir}/llvm-profgen%{exec_suffix}
-%{_bindir}/llvm-ranlib%{exec_suffix}
-%{_bindir}/llvm-rc%{exec_suffix}
-%{_bindir}/llvm-readelf%{exec_suffix}
-%{_bindir}/llvm-readobj%{exec_suffix}
-%{_bindir}/llvm-readtapi%{exec_suffix}
-%{_bindir}/llvm-reduce%{exec_suffix}
-%{_bindir}/llvm-remarkutil%{exec_suffix}
-%{_bindir}/llvm-rtdyld%{exec_suffix}
-%{_bindir}/llvm-sim%{exec_suffix}
-%{_bindir}/llvm-size%{exec_suffix}
-%{_bindir}/llvm-split%{exec_suffix}
-%{_bindir}/llvm-stress%{exec_suffix}
-%{_bindir}/llvm-strings%{exec_suffix}
-%{_bindir}/llvm-strip%{exec_suffix}
-%{_bindir}/llvm-symbolizer%{exec_suffix}
-%{_bindir}/llvm-tblgen%{exec_suffix}
-%{_bindir}/llvm-tli-checker%{exec_suffix}
-%{_bindir}/llvm-undname%{exec_suffix}
-%{_bindir}/llvm-windres%{exec_suffix}
-%{_bindir}/llvm-xray%{exec_suffix}
-%{_bindir}/reduce-chunk-list%{exec_suffix}
-%{_bindir}/obj2yaml%{exec_suffix}
-%{_bindir}/opt%{exec_suffix}
-%{_bindir}/sancov%{exec_suffix}
-%{_bindir}/sanstats%{exec_suffix}
-%{_bindir}/split-file%{exec_suffix}
-%{_bindir}/UnicodeNameMappingGenerator%{exec_suffix}
-%{_bindir}/verify-uselistorder%{exec_suffix}
-%{_bindir}/yaml2obj%{exec_suffix}
-%if %{maj_ver} >= 20
-%{_bindir}/llvm-cgdata%{exec_suffix}
-%{_bindir}/llvm-ctxprof-util%{exec_suffix}
-%endif
-
-%endif
-
-%exclude %{_bindir}/llvm-config%{exec_suffix}
-%exclude %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
-
-%exclude %{_bindir}/llvm-config-%{maj_ver}
-%exclude %{install_bindir}/llvm-config-%{maj_ver}-%{__isa_bits}
-%exclude %{install_bindir}/not
-%exclude %{install_bindir}/count
-%exclude %{install_bindir}/yaml-bench
-%exclude %{install_bindir}/lli-child-target
-%exclude %{install_bindir}/llvm-isel-fuzzer
-%exclude %{install_bindir}/llvm-opt-fuzzer
-%{pkg_datadir}/opt-viewer
+%expand_datas opt-viewer
 
 %files -n %{pkg_name_llvm}-libs
 %license llvm/LICENSE.TXT
-%{install_libdir}/libLLVM-%{maj_ver}%{?llvm_snapshot_version_suffix}.so
+%{expand_libs %{expand:
+    libLLVM-%{maj_ver}%{?llvm_snapshot_version_suffix}.so
+    libLLVM.so.%{maj_ver}.%{min_ver}%{?llvm_snapshot_version_suffix}
+    libLTO.so*
+    libRemarks.so*
+}}
 %if %{with gold}
-%{install_libdir}/LLVMgold.so
+%expand_libs LLVMgold.so
 %if %{without compat_build}
 %{_libdir}/bfd-plugins/LLVMgold.so
 %endif
 %endif
-%{install_libdir}/libLLVM.so.%{maj_ver}.%{min_ver}%{?llvm_snapshot_version_suffix}
-%{install_libdir}/libLTO.so*
-%{install_libdir}/libRemarks.so*
+
 %if %{with compat_build}
-%config(noreplace) /etc/ld.so.conf.d/%{name}-%{_arch}.conf
+%config(noreplace) %{_sysconfdir}/ld.so.conf.d/%{pkg_name_llvm}-%{_arch}.conf
 %endif
 %if %{with bundle_compat_lib}
 %{_libdir}/libLLVM.so.%{compat_maj_ver}*
@@ -2131,20 +2517,18 @@ fi
 %files -n %{pkg_name_llvm}-devel
 %license llvm/LICENSE.TXT
 
+%{install_bindir}/llvm-config
+%ghost %{_bindir}/llvm-config-%{maj_ver}
 %if %{without compat_build}
 %ghost %{_bindir}/llvm-config
-%{install_bindir}/llvm-config-%{__isa_bits}
-%else
-%{install_bindir}/llvm-config
 %endif
-%ghost %{_bindir}/llvm-config-%{maj_ver}
-%{install_bindir}/llvm-config-%{maj_ver}-%{__isa_bits}
 
-%{_mandir}/man1/llvm-config*
-%{install_includedir}/llvm
-%{install_includedir}/llvm-c
-%{install_libdir}/libLLVM.so
-%{install_libdir}/cmake/llvm
+%expand_mans llvm-config
+%expand_includes llvm llvm-c
+%{expand_libs %{expand:
+    libLLVM.so
+    cmake/llvm
+}}
 
 %files -n %{pkg_name_llvm}-doc
 %license llvm/LICENSE.TXT
@@ -2152,43 +2536,42 @@ fi
 
 %files -n %{pkg_name_llvm}-static
 %license llvm/LICENSE.TXT
-%{install_libdir}/libLLVM*.a
+%expand_libs libLLVM*.a
 %exclude %{install_libdir}/libLLVMTestingSupport.a
 %exclude %{install_libdir}/libLLVMTestingAnnotations.a
+%if %{without compat_build}
+%exclude %{_libdir}/libLLVMTestingSupport.a
+%exclude %{_libdir}/libLLVMTestingAnnotations.a
+%endif
 
 %files -n %{pkg_name_llvm}-cmake-utils
 %license llvm/LICENSE.TXT
-%{pkg_datadir}/llvm/cmake
+%expand_datas llvm-cmake
 
 %files -n %{pkg_name_llvm}-test
 %license llvm/LICENSE.TXT
-%{install_bindir}/not
-%{install_bindir}/count
-%{install_bindir}/yaml-bench
-%{install_bindir}/lli-child-target
-%{install_bindir}/llvm-isel-fuzzer
-%{install_bindir}/llvm-opt-fuzzer
-%if %{with compat_build}
-%{_bindir}/not%{exec_suffix}
-%{_bindir}/count%{exec_suffix}
-%{_bindir}/yaml-bench%{exec_suffix}
-%{_bindir}/lli-child-target%{exec_suffix}
-%{_bindir}/llvm-isel-fuzzer%{exec_suffix}
-%{_bindir}/llvm-opt-fuzzer%{exec_suffix}
-%endif
+%{expand_bins %{expand:
+    not
+    count
+    yaml-bench
+    lli-child-target
+    llvm-isel-fuzzer
+    llvm-opt-fuzzer
+}}
 
 %files -n %{pkg_name_llvm}-googletest
 %license llvm/LICENSE.TXT
-%{install_libdir}/libLLVMTestingSupport.a
-%{install_libdir}/libLLVMTestingAnnotations.a
-%{install_libdir}/libllvm_gtest.a
-%{install_libdir}/libllvm_gtest_main.a
-%{install_includedir}/llvm-gtest
-%{install_includedir}/llvm-gmock
+%{expand_libs %{expand:
+    libLLVMTestingSupport.a
+    libLLVMTestingAnnotations.a
+    libllvm_gtest.a
+    libllvm_gtest_main.a
+}}
+%expand_includes llvm-gtest llvm-gmock
 
 %if %{with snapshot_build}
 %files -n %{pkg_name_llvm}-build-stats
-%{pkg_datadir}/.ninja_log
+%{_datadir}/.ninja_log
 %endif
 
 #endregion LLVM files
@@ -2197,35 +2580,37 @@ fi
 
 %files -n %{pkg_name_clang}
 %license clang/LICENSE.TXT
-%{install_bindir}/clang
-%{install_bindir}/clang++
+%{expand_bins %{expand:
+    clang
+    clang++
+    clang-cl
+    clang-cpp
+    clang-scan-deps
+}}
 %{install_bindir}/clang-%{maj_ver}
-%{install_bindir}/clang++-%{maj_ver}
-%{install_bindir}/clang-cl
-%{install_bindir}/clang-cpp
+
 %{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang.cfg
 %{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-clang++.cfg
 %ifarch x86_64
 %{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-clang.cfg
 %{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-clang++.cfg
 %endif
-%{_mandir}/man1/clang-%{maj_ver}.1.gz
-%{_mandir}/man1/clang++-%{maj_ver}.1.gz
-%if %{without compat_build}
-%{_mandir}/man1/clang.1.gz
-%{_mandir}/man1/clang++.1.gz
-%else
-%{_bindir}/clang-%{maj_ver}
-%{_bindir}/clang++-%{maj_ver}
-%{_bindir}/clang-cl-%{maj_ver}
-%{_bindir}/clang-cpp-%{maj_ver}
-%endif
+%{expand_mans clang clang++}
 
 %files -n %{pkg_name_clang}-libs
 %license clang/LICENSE.TXT
 %{_prefix}/lib/clang/%{maj_ver}/include/*
-%{install_libdir}/libclang.so.%{maj_ver}*
-%{install_libdir}/libclang-cpp.so.%{maj_ver}*
+# Part of compiler-rt:
+%exclude %{_prefix}/lib/clang/%{maj_ver}/include/fuzzer
+%exclude %{_prefix}/lib/clang/%{maj_ver}/include/orc
+%exclude %{_prefix}/lib/clang/%{maj_ver}/include/profile
+%exclude %{_prefix}/lib/clang/%{maj_ver}/include/sanitizer
+%exclude %{_prefix}/lib/clang/%{maj_ver}/include/xray
+# Part of libomp-devel:
+%exclude %{_prefix}/lib/clang/%{maj_ver}/include/omp*.h
+
+%expand_libs libclang.so.%{maj_ver}*
+%expand_libs libclang-cpp.so.%{maj_ver}*
 %if %{with bundle_compat_lib}
 %{_libdir}/libclang.so.%{compat_maj_ver}*
 %{_libdir}/libclang-cpp.so.%{compat_maj_ver}*
@@ -2233,16 +2618,17 @@ fi
 
 %files -n %{pkg_name_clang}-devel
 %license clang/LICENSE.TXT
-%{install_libdir}/libclang-cpp.so
-%{install_libdir}/libclang.so
-%{install_includedir}/clang/
-%{install_includedir}/clang-c/
-%{install_libdir}/cmake/clang
-%{install_bindir}/clang-tblgen
-%if %{with compat_build}
-%{_bindir}/clang-tblgen-%{maj_ver}
-%endif
+%{expand_libs %{expand:
+    cmake/clang
+    libclang-cpp.so
+    libclang.so
+}}
+%expand_includes clang clang-c
+%expand_bins clang-tblgen
 %dir %{install_datadir}/clang/
+%if %{without compat_build}
+%dir %{_datadir}/clang
+%endif
 
 %files -n %{pkg_name_clang}-resource-filesystem
 %license clang/LICENSE.TXT
@@ -2256,141 +2642,89 @@ fi
 
 %files -n %{pkg_name_clang}-analyzer
 %license clang/LICENSE.TXT
-%{install_bindir}/scan-view
-%{install_bindir}/scan-build
-%{install_bindir}/analyze-build
-%{install_bindir}/intercept-build
-%{install_bindir}/scan-build-py
-%if %{with compat_build}
-%{_bindir}/scan-view-%{maj_ver}
-%{_bindir}/scan-build-%{maj_ver}
-%{_bindir}/analyze-build-%{maj_ver}
-%{_bindir}/intercept-build-%{maj_ver}
-%{_bindir}/scan-build-py-%{maj_ver}
-%endif
-%{install_libexecdir}/ccc-analyzer
-%{install_libexecdir}/c++-analyzer
-%{install_libexecdir}/analyze-c++
-%{install_libexecdir}/analyze-cc
-%{install_libexecdir}/intercept-c++
-%{install_libexecdir}/intercept-cc
-%{install_datadir}/scan-view/
-%{install_datadir}/scan-build/
-%{_mandir}/man1/scan-build%{exec_suffix}.1.*
+%{expand_bins %{expand:
+    scan-view
+    scan-build
+    analyze-build
+    intercept-build
+}}
+%{expand_libexecs %{expand:
+    ccc-analyzer
+    c++-analyzer
+    analyze-c++
+    analyze-cc
+    intercept-c++
+    intercept-cc
+}}
+%expand_datas scan-view scan-build
+%expand_mans scan-build
 %if %{without compat_build}
+%expand_bins scan-build-py
 %{python3_sitelib}/libear
 %{python3_sitelib}/libscanbuild
 %endif
 
-
 %files -n %{pkg_name_clang}-tools-extra
 %license clang-tools-extra/LICENSE.TXT
-%{install_bindir}/amdgpu-arch
-%{install_bindir}/clang-apply-replacements
-%{install_bindir}/clang-change-namespace
-%{install_bindir}/clang-check
-%{install_bindir}/clang-doc
-%{install_bindir}/clang-extdef-mapping
-%{install_bindir}/clang-format
-%{install_bindir}/clang-include-cleaner
-%{install_bindir}/clang-include-fixer
-%{install_bindir}/clang-installapi
-%{install_bindir}/clang-move
-%{install_bindir}/clang-offload-bundler
-%{install_bindir}/clang-offload-packager
-%{install_bindir}/clang-linker-wrapper
-%{install_bindir}/clang-nvlink-wrapper
-%{install_bindir}/clang-query
-%{install_bindir}/clang-refactor
-%{install_bindir}/clang-reorder-fields
-%{install_bindir}/clang-repl
-%{install_bindir}/clang-scan-deps
-%if %{maj_ver} >= 20
-%{install_bindir}/clang-sycl-linker
-%endif
-%{install_bindir}/clang-tidy
-%{install_bindir}/clangd
-%{install_bindir}/diagtool
-%{install_bindir}/hmaptool
-%{install_bindir}/nvptx-arch
-%{install_bindir}/pp-trace
-%{install_bindir}/c-index-test
-%{install_bindir}/find-all-symbols
-%{install_bindir}/modularize
-%{install_bindir}/clang-format-diff
-%{install_bindir}/run-clang-tidy
-%if %{maj_ver} < 20
-%{install_bindir}/clang-pseudo
-%{install_bindir}/clang-rename
-%endif
-%if %{with compat_build}
-%{_bindir}/amdgpu-arch-%{maj_ver}
-%{_bindir}/clang-apply-replacements-%{maj_ver}
-%{_bindir}/clang-change-namespace-%{maj_ver}
-%{_bindir}/clang-check-%{maj_ver}
-%{_bindir}/clang-doc-%{maj_ver}
-%{_bindir}/clang-extdef-mapping-%{maj_ver}
-%{_bindir}/clang-format-%{maj_ver}
-%{_bindir}/clang-include-cleaner-%{maj_ver}
-%{_bindir}/clang-include-fixer-%{maj_ver}
-%{_bindir}/clang-installapi-%{maj_ver}
-%{_bindir}/clang-move-%{maj_ver}
-%{_bindir}/clang-offload-bundler-%{maj_ver}
-%{_bindir}/clang-offload-packager-%{maj_ver}
-%{_bindir}/clang-linker-wrapper-%{maj_ver}
-%{_bindir}/clang-nvlink-wrapper-%{maj_ver}
-%{_bindir}/clang-query-%{maj_ver}
-%{_bindir}/clang-refactor-%{maj_ver}
-%{_bindir}/clang-reorder-fields-%{maj_ver}
-%{_bindir}/clang-repl-%{maj_ver}
-%{_bindir}/clang-scan-deps-%{maj_ver}
-%if %{maj_ver} >= 20
-%{_bindir}/clang-sycl-linker-%{maj_ver}
-%endif
-%{_bindir}/clang-tidy-%{maj_ver}
-%{_bindir}/clangd-%{maj_ver}
-%{_bindir}/diagtool-%{maj_ver}
-%{_bindir}/hmaptool-%{maj_ver}
-%{_bindir}/nvptx-arch-%{maj_ver}
-%{_bindir}/pp-trace-%{maj_ver}
-%{_bindir}/c-index-test-%{maj_ver}
-%{_bindir}/find-all-symbols-%{maj_ver}
-%{_bindir}/modularize-%{maj_ver}
-%{_bindir}/clang-format-diff-%{maj_ver}
-%{_bindir}/run-clang-tidy-%{maj_ver}
-%if %{maj_ver} < 20
-%{_bindir}/clang-pseudo-%{maj_ver}
-%{_bindir}/clang-rename-%{maj_ver}
-%endif
-%else
-%{_emacs_sitestartdir}/clang-format.el
-%if %{maj_ver} < 20
-%{_emacs_sitestartdir}/clang-rename.el
-%endif
-%{_emacs_sitestartdir}/clang-include-fixer.el
-%endif
-%{_mandir}/man1/diagtool%{exec_suffix}.1.gz
-%{_mandir}/man1/extraclangtools%{exec_suffix}.1.gz
-%{install_datadir}/clang/clang-format.py*
-%{install_datadir}/clang/clang-format-diff.py*
-%{install_datadir}/clang/clang-include-fixer.py*
-%{install_datadir}/clang/clang-tidy-diff.py*
-%{install_datadir}/clang/run-find-all-symbols.py*
-%if %{maj_ver} < 20
-%{install_datadir}/clang/clang-rename.py*
+%{expand_bins %{expand:
+    amdgpu-arch
+    clang-apply-replacements
+    clang-change-namespace
+    clang-check
+    clang-doc
+    clang-extdef-mapping
+    clang-format
+    clang-include-cleaner
+    clang-include-fixer
+    clang-installapi
+    clang-move
+    clang-offload-bundler
+    clang-offload-packager
+    clang-linker-wrapper
+    clang-nvlink-wrapper
+    clang-query
+    clang-refactor
+    clang-reorder-fields
+    clang-repl
+    clang-sycl-linker
+    clang-tidy
+    clangd
+    diagtool
+    hmaptool
+    nvptx-arch
+    pp-trace
+    c-index-test
+    find-all-symbols
+    modularize
+    clang-format-diff
+    run-clang-tidy
+}}
+%if %{maj_ver} >= 21
+%{expand_bins %{expand:
+    offload-arch
+}}
 %endif
 
+%if %{without compat_build}
+%{_emacs_sitestartdir}/clang-format.el
+%{_emacs_sitestartdir}/clang-include-fixer.el
+%endif
+%expand_mans diagtool extraclangtools
+%{expand_datas %{expand:
+    clang/clang-format.py*
+    clang/clang-format-diff.py*
+    clang/clang-include-fixer.py*
+    clang/clang-tidy-diff.py*
+    clang/run-find-all-symbols.py*
+}}
 
 %files -n %{pkg_name_clang}-tools-extra-devel
 %license clang-tools-extra/LICENSE.TXT
-%{install_includedir}/clang-tidy/
+%expand_includes clang-tidy
 
 %files -n git-clang-format%{pkg_suffix}
 %license clang/LICENSE.TXT
-%{install_bindir}/git-clang-format
-%if %{with compat_build}
-%{_bindir}/git-clang-format-%{maj_ver}
-%endif
+%expand_bins git-clang-format
 
 %if %{without compat_build}
 %files -n python%{python3_pkgversion}-clang
@@ -2438,13 +2772,16 @@ fi
 
 %files -n %{pkg_name_libomp}
 %license openmp/LICENSE.TXT
-%{install_libdir}/libomp.so
-%{install_libdir}/libompd.so
-%{install_libdir}/libarcher.so
-%ifnarch %{ix86} riscv64
+%{expand_libs %{expand:
+    libomp.so
+    libompd.so
+    libarcher.so
+}}
+%ifnarch %{ix86}
 # libomptarget is not supported on 32-bit systems.
 # s390x does not support the offloading plugins.
-%{install_libdir}/libomptarget.so.%{so_suffix}
+%expand_libs libomptarget.so.%{so_suffix}
+%expand_libs libLLVMOffload.so.%{so_suffix}
 %endif
 
 %files -n %{pkg_name_libomp}-devel
@@ -2454,16 +2791,19 @@ fi
 %{_prefix}/lib/clang/%{maj_ver}/include/omp-tools.h
 %{_prefix}/lib/clang/%{maj_ver}/include/ompt.h
 %{_prefix}/lib/clang/%{maj_ver}/include/ompt-multiplex.h
-%{install_libdir}/cmake/openmp/
-%ifnarch %{ix86} riscv64
+%expand_libs cmake/openmp
+%ifnarch %{ix86}
 # libomptarget is not supported on 32-bit systems.
 # s390x does not support the offloading plugins.
-%{install_libdir}/libomptarget.devicertl.a
-%{install_libdir}/libomptarget-amdgpu-*.bc
-%{install_libdir}/libomptarget-nvptx-*.bc
-%{install_libdir}/libomptarget.so
+%{expand_libs %{expand:
+    libomptarget.devicertl.a
+    libomptarget-amdgpu*.bc
+    libomptarget-nvptx*.bc
+    libomptarget.so
+    libLLVMOffload.so
+}}
+%expand_includes offload
 %endif
-
 #endregion OPENMP files
 
 #region LLD files
@@ -2471,40 +2811,38 @@ fi
 %files -n %{pkg_name_lld}
 %license lld/LICENSE.TXT
 %ghost %{_bindir}/ld
-%{install_bindir}/lld
-%{install_bindir}/lld-link
-%{install_bindir}/ld.lld
-%{install_bindir}/ld64.lld
-%{install_bindir}/wasm-ld
-%if %{without compat_build}
-%{_mandir}/man1/ld.lld.1*
-%else
-%{_bindir}/lld%{exec_suffix}
-%{_bindir}/lld-link%{exec_suffix}
-%{_bindir}/ld.lld%{exec_suffix}
-%{_bindir}/ld64.lld%{exec_suffix}
-%{_bindir}/wasm-ld%{exec_suffix}
-%endif
+%{expand_bins %{expand:
+    lld
+    lld-link
+    ld.lld
+    ld64.lld
+    wasm-ld
+}}
+%expand_mans ld.lld
 
 %files -n %{pkg_name_lld}-devel
 %license lld/LICENSE.TXT
-%{install_includedir}/lld
-%{install_libdir}/liblldCOFF.so
-%{install_libdir}/liblldCommon.so
-%{install_libdir}/liblldELF.so
-%{install_libdir}/liblldMachO.so
-%{install_libdir}/liblldMinGW.so
-%{install_libdir}/liblldWasm.so
-%{install_libdir}/cmake/lld/
+%expand_includes lld
+%{expand_libs %{expand:
+    liblldCOFF.so
+    liblldCommon.so
+    liblldELF.so
+    liblldMachO.so
+    liblldMinGW.so
+    liblldWasm.so
+    cmake/lld
+}}
 
 %files -n %{pkg_name_lld}-libs
 %license lld/LICENSE.TXT
-%{install_libdir}/liblldCOFF.so.*
-%{install_libdir}/liblldCommon.so.*
-%{install_libdir}/liblldELF.so.*
-%{install_libdir}/liblldMachO.so.*
-%{install_libdir}/liblldMinGW.so.*
-%{install_libdir}/liblldWasm.so.*
+%{expand_libs %{expand:
+    liblldCOFF.so.*
+    liblldCommon.so.*
+    liblldELF.so.*
+    liblldMachO.so.*
+    liblldMinGW.so.*
+    liblldWasm.so.*
+}}
 
 #endregion LLD files
 
@@ -2519,29 +2857,187 @@ fi
 %if %{with lldb}
 %files -n %{pkg_name_lldb}
 %license lldb/LICENSE.TXT
-%{install_bindir}/lldb*
+%{expand_bins %{expand:
+    lldb
+    lldb-argdumper
+    lldb-dap
+    lldb-instr
+    lldb-server
+}}
 # Usually, *.so symlinks are kept in devel subpackages. However, the python
 # bindings depend on this symlink at runtime.
-%{install_libdir}/liblldb*.so
-%{install_libdir}/liblldb.so.*
-%{install_libdir}/liblldbIntelFeatures.so.*
-%{_mandir}/man1/lldb-server%{exec_suffix}.1.gz
-%{_mandir}/man1/lldb%{exec_suffix}.1.gz
+%{expand_libs %{expand:
+    liblldb*.so
+    liblldb.so.*
+    liblldbIntelFeatures.so.*
+}}
+%expand_mans lldb-server lldb
 %if %{with bundle_compat_lib}
 %{_libdir}/liblldb.so.%{compat_maj_ver}*
 %endif
 
 %files -n %{pkg_name_lldb}-devel
-%{install_includedir}/lldb
+%expand_includes lldb
 
+%if %{without compat_build}
 %files -n python%{python3_pkgversion}-lldb
 %{python3_sitearch}/lldb
 %endif
+%endif
 #endregion LLDB files
+
+
+#region MLIR files
+%if %{with mlir}
+%files -n %{pkg_name_mlir}
+%license LICENSE.TXT
+%{expand_libs %{expand:
+    libmlir_arm_runner_utils.so.%{maj_ver}*
+    libmlir_arm_sme_abi_stubs.so.%{maj_ver}*
+    libmlir_async_runtime.so.%{maj_ver}*
+    libmlir_c_runner_utils.so.%{maj_ver}*
+    libmlir_float16_utils.so.%{maj_ver}*
+    libmlir_runner_utils.so.%{maj_ver}*
+    libMLIR*.so.%{maj_ver}*
+}}
+
+%files -n %{pkg_name_mlir}-static
+%expand_libs libMLIR*.a
+
+%files -n %{pkg_name_mlir}-devel
+%{expand_bins %{expand:
+    mlir-linalg-ods-yaml-gen
+    mlir-lsp-server
+    mlir-opt
+    mlir-pdll
+    mlir-pdll-lsp-server
+    mlir-query
+    mlir-reduce
+    mlir-rewrite
+    mlir-runner
+    mlir-tblgen
+    mlir-translate
+    tblgen-lsp-server
+    tblgen-to-irdl
+}}
+%expand_includes mlir mlir-c
+%{expand_libs %{expand:
+    cmake/mlir
+    libmlir_arm_runner_utils.so
+    libmlir_arm_sme_abi_stubs.so
+    libmlir_async_runtime.so
+    libmlir_c_runner_utils.so
+    libmlir_float16_utils.so
+    libmlir_runner_utils.so
+    libMLIR*.so
+}}
+
+%files -n python%{python3_pkgversion}-%{pkg_name_mlir}
+%{python3_sitearch}/mlir/
+%endif
+#endregion MLIR files
+
+#region libcxx files
+%if %{with libcxx}
+
+%files -n %{pkg_name_libcxx}
+%license libcxx/LICENSE.TXT
+%doc libcxx/CREDITS.TXT libcxx/TODO.TXT
+%{_libdir}/libc++.so.*
+
+%files -n %{pkg_name_libcxx}-devel
+%{_includedir}/c++/
+%exclude %{_includedir}/c++/v1/cxxabi.h
+%exclude %{_includedir}/c++/v1/__cxxabi_config.h
+%{_libdir}/libc++.so
+%{_libdir}/libc++.modules.json
+%{_datadir}/libc++/v1/*
+
+%files -n %{pkg_name_libcxx}-static
+%license libcxx/LICENSE.TXT
+%{_libdir}/libc++.a
+%{_libdir}/libc++experimental.a
+
+%files -n %{pkg_name_libcxxabi}
+%license libcxxabi/LICENSE.TXT
+%doc libcxxabi/CREDITS.TXT
+%{_libdir}/libc++abi.so.*
+
+%files -n %{pkg_name_libcxxabi}-devel
+%{_includedir}/c++/v1/cxxabi.h
+%{_includedir}/c++/v1/__cxxabi_config.h
+%{_libdir}/libc++abi.so
+
+%files -n %{pkg_name_libcxxabi}-static
+%{_libdir}/libc++abi.a
+
+%files -n %{pkg_name_llvm_libunwind}
+%license libunwind/LICENSE.TXT
+%{_libdir}/libunwind.so.1
+%{_libdir}/libunwind.so.1.0
+
+%files -n %{pkg_name_llvm_libunwind}-devel
+%{_includedir}/llvm-libunwind/__libunwind_config.h
+%{_includedir}/llvm-libunwind/libunwind.h
+%{_includedir}/llvm-libunwind/libunwind.modulemap
+%{_includedir}/llvm-libunwind/mach-o/compact_unwind_encoding.h
+%{_includedir}/llvm-libunwind/unwind.h
+%{_includedir}/llvm-libunwind/unwind_arm_ehabi.h
+%{_includedir}/llvm-libunwind/unwind_itanium.h
+%dir %{_libdir}/llvm-unwind
+%{_libdir}/llvm-unwind/libunwind.so
+
+%files -n %{pkg_name_llvm_libunwind}-static
+%{_libdir}/libunwind.a
+%endif
+#endregion libcxx files
+
+#region BOLT files
+%if %{with build_bolt}
+%files -n %{pkg_name_bolt}
+%license bolt/LICENSE.TXT
+%{expand_bins %{expand:
+    llvm-bolt
+    llvm-boltdiff
+    llvm-bolt-binary-analysis
+    llvm-bolt-heatmap
+    merge-fdata
+    perf2bolt
+}}
+
+%{expand_libs %{expand:
+    libbolt_rt_hugify.a
+    libbolt_rt_instr.a
+}}
+%endif
+#endregion BOLT files
+
+#region polly files
+%if %{with polly}
+%files -n %{pkg_name_polly}
+%license polly/LICENSE.TXT
+%{expand_libs %{expand:
+  LLVMPolly.so
+  libPolly.so.*
+  libPollyISL.so
+}}
+%expand_mans polly
+
+%files -n %{pkg_name_polly}-devel
+%expand_libs libPolly.so
+%expand_includes polly
+%expand_libs cmake/polly
+
+%endif
+#endregion polly files
+
 #endregion files
 
 #region changelog
 %changelog
+* Mon Apr 14 2025 Konrad Kleine <kkleine@redhat.com> - 20.1.2-1
+- Update to LLVM 20.1.2 (RHEL-80988)
+
 * Fri Jan 17 2025 Nikita Popov <npopov@redhat.com> - 19.1.7-2
 - Support CET in libomp.so (RHEL-74346)
 
