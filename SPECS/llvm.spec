@@ -2,7 +2,7 @@
 #region version
 %global maj_ver 20
 %global min_ver 1
-%global patch_ver 2
+%global patch_ver 4
 #global rc_ver 3
 
 %bcond_with snapshot_build
@@ -40,6 +40,21 @@
 %endif
 
 %bcond_without lldb
+
+%ifarch ppc64le
+%if %{defined rhel} && 0%{?rhel} < 10 && %{maj_ver} >= 21
+# RHEL <= 9 use the IBM long double format, which is not supported by libc.
+# Since LLVM 21, parts of libc are required in order to build offload.
+%bcond_with offload
+%else
+%bcond_without offload
+%endif
+%elifarch %{ix86}
+# libomptarget is not supported on 32-bit systems.
+%bcond_with offload
+%else
+%bcond_without offload
+%endif
 
 %if %{without compat_build} && 0%{?fedora} >= 41
 %ifarch %{ix86}
@@ -112,6 +127,12 @@
 %global gts_version 14
 %endif
 
+%if %{defined rhel} && 0%{?rhel} <= 8
+%bcond_with libedit
+%else
+%bcond_without libedit
+%endif
+
 # Opt out of https://fedoraproject.org/wiki/Changes/fno-omit-frame-pointer
 # https://bugzilla.redhat.com/show_bug.cgi?id=2158587
 %undefine _include_frame_pointers
@@ -121,6 +142,13 @@
 %global src_tarball_dir llvm-project-%{llvm_snapshot_git_revision}
 %else
 %global src_tarball_dir llvm-project-%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:-rc%{rc_ver}}.src
+%endif
+
+%global has_crtobjs 1
+%if %{maj_ver} < 21
+%ifarch s390x
+%global has_crtobjs 0
+%endif
 %endif
 
 #region LLVM globals
@@ -148,7 +176,7 @@
 %global unprefixed_libdir lib
 
 %if 0%{?rhel}
-%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;ARM;Mips;BPF;WebAssembly;RISCV"
+%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;BPF;WebAssembly;RISCV"
 %global experimental_targets_to_build ""
 %else
 %global targets_to_build "all"
@@ -306,6 +334,14 @@ Patch103:             0001-Workaround-a-bug-in-ORC-on-ppc64le.patch
 Patch104:             0001-Driver-Give-devtoolset-path-precedence-over-Installe.patch
 #endregion CLANG patches
 
+# Fix for glibc >= 2.42
+# https://github.com/llvm/llvm-project/pull/137403
+Patch2005:            0001-sanitizer_common-Remove-interceptors-for-deprecated-.patch
+
+# Fix for glibc >= 2.42 on ppc64le
+Patch2008:            0001-sanitizer_common-Disable-termio-ioctls-on-PowerPC.patch.20
+Patch2108:            0001-sanitizer_common-Disable-termio-ioctls-on-PowerPC.patch
+
 # Fix LLVMConfig.cmake when symlinks are used.
 # (https://github.com/llvm/llvm-project/pull/124743 landed in LLVM 21)
 Patch1902:            0001-cmake-Resolve-symlink-when-finding-install-prefix.patch
@@ -328,10 +364,6 @@ Patch501:             0001-Fix-page-size-constant-on-aarch64-and-ppc64le.patch
 # Fix an isel error triggered by Rust 1.85 on s390x
 # https://github.com/llvm/llvm-project/issues/124001
 Patch1901:            0001-SystemZ-Fix-ICE-with-i128-i64-uaddo-carry-chain.patch
-
-# Backport fix for https://bugzilla.redhat.com/show_bug.cgi?id=2352554.
-# https://github.com/llvm/llvm-project/pull/131801
-Patch2004:            131801.patch
 
 %if 0%{?rhel} == 8
 %global python3_pkgversion 3.12
@@ -381,8 +413,10 @@ BuildRequires:        binutils-gold
 # Enable extra functionality when run the LLVM JIT under valgrind.
 BuildRequires:        valgrind-devel
 %endif
+%if %{with libedit}
 # LLVM's LineEditor library will use libedit if it is available.
 BuildRequires:        libedit-devel
+%endif
 # We need python3-devel for %%py3_shebang_fix
 BuildRequires:        python%{python3_pkgversion}-devel
 BuildRequires:        python%{python3_pkgversion}-setuptools
@@ -493,7 +527,9 @@ Requires:             %{pkg_name_llvm}-libs%{?_isa} = %{version}-%{release}
 # The installed LLVM cmake files will add -ledit to the linker flags for any
 # app that requires the libLLVMLineEditor, so we need to make sure
 # libedit-devel is available.
+%if %{with libedit}
 Requires:             libedit-devel
+%endif
 Requires:             libzstd-devel
 # The installed cmake files reference binaries from llvm-test, llvm-static, and
 # llvm-gtest.  We tried in the past to split the cmake exports for these binaries
@@ -504,9 +540,9 @@ Requires:             %{pkg_name_llvm}-static%{?_isa} = %{version}-%{release}
 Requires:             %{pkg_name_llvm}-test%{?_isa} = %{version}-%{release}
 Requires:             %{pkg_name_llvm}-googletest%{?_isa} = %{version}-%{release}
 
-
-Requires(post):	alternatives
-Requires(postun):	alternatives
+%if %{without compat_build}
+Requires(pre):	alternatives
+%endif
 
 Provides:             llvm-devel(major) = %{maj_ver}
 
@@ -1116,7 +1152,7 @@ sed -i 's/LLDB_ENABLE_PYTHON/TRUE/' lldb/docs/CMakeLists.txt
 %endif
 
 %global projects clang;clang-tools-extra;lld
-%global runtimes compiler-rt;openmp;offload
+%global runtimes compiler-rt;openmp
 
 %if %{with lldb}
 %global projects %{projects};lldb
@@ -1136,6 +1172,10 @@ sed -i 's/LLDB_ENABLE_PYTHON/TRUE/' lldb/docs/CMakeLists.txt
 
 %if %{with libcxx}
 %global runtimes %{runtimes};libcxx;libcxxabi;libunwind
+%endif
+
+%if %{with offload}
+%global runtimes %{runtimes};offload
 %endif
 
 %global cfg_file_content --gcc-triple=%{_target_cpu}-redhat-linux
@@ -1164,9 +1204,6 @@ export ASMFLAGS="%{build_cflags}"
 # We set CLANG_DEFAULT_PIE_ON_LINUX=OFF and PPC_LINUX_DEFAULT_IEEELONGDOUBLE=ON to match the
 # defaults used by Fedora's GCC.
 
-%ifarch riscv64
-%define _find_debuginfo_dwz_opts %{nil}
-%endif
 # Disable dwz on aarch64, because it takes a huge amount of time to decide not to optimize things.
 # This is copied from clang.
 %ifarch aarch64 riscv64
@@ -1192,12 +1229,16 @@ popd
 # Common cmake arguments used by both the normal build and bundle_compat_lib.
 # Any ABI-affecting flags should be in here.
 %global cmake_common_args \\\
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \\\
     -DLLVM_ENABLE_EH=ON \\\
     -DLLVM_ENABLE_RTTI=ON \\\
     -DLLVM_USE_PERF=ON \\\
     -DLLVM_TARGETS_TO_BUILD=%{targets_to_build} \\\
     -DBUILD_SHARED_LIBS=OFF \\\
-    -DLLVM_BUILD_LLVM_DYLIB=ON
+    -DLLVM_BUILD_LLVM_DYLIB=ON \\\
+    -DLLVM_LINK_LLVM_DYLIB=ON \\\
+    -DCLANG_LINK_CLANG_DYLIB=ON \\\
+    -DLLVM_ENABLE_FFI:BOOL=ON
 
 %global cmake_config_args %{cmake_common_args}
 
@@ -1211,7 +1252,6 @@ popd
 	-DCLANG_ENABLE_STATIC_ANALYZER:BOOL=ON \\\
 	-DCLANG_INCLUDE_DOCS:BOOL=ON \\\
 	-DCLANG_INCLUDE_TESTS:BOOL=ON \\\
-	-DCLANG_LINK_CLANG_DYLIB=ON \\\
 	-DCLANG_PLUGIN_SUPPORT:BOOL=ON \\\
 	-DCLANG_REPOSITORY_STRING="%{?dist_vendor} %{version}-%{release}" \\\
 	-DLLVM_EXTERNAL_CLANG_TOOLS_EXTRA_SOURCE_DIR=../clang-tools-extra \\\
@@ -1294,8 +1334,6 @@ popd
 	-DLLVM_BUILD_TOOLS:BOOL=ON \\\
 	-DLLVM_BUILD_UTILS:BOOL=ON \\\
 	-DLLVM_DEFAULT_TARGET_TRIPLE=%{llvm_triple} \\\
-	-DLLVM_DYLIB_COMPONENTS="all" \\\
-	-DLLVM_ENABLE_FFI:BOOL=ON \\\
 	-DLLVM_ENABLE_LIBCXX:BOOL=OFF \\\
 	-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \\\
 	-DLLVM_ENABLE_PROJECTS="%{projects}" \\\
@@ -1309,7 +1347,6 @@ popd
 	-DLLVM_INCLUDE_UTILS:BOOL=ON \\\
 	-DLLVM_INSTALL_TOOLCHAIN_ONLY:BOOL=OFF \\\
 	-DLLVM_INSTALL_UTILS:BOOL=ON \\\
-	-DLLVM_LINK_LLVM_DYLIB:BOOL=ON \\\
 	-DLLVM_PARALLEL_LINK_JOBS=1 \\\
 	-DLLVM_TOOLS_INSTALL_DIR:PATH=bin \\\
 	-DLLVM_UNREACHABLE_OPTIMIZE:BOOL=OFF \\\
@@ -1360,11 +1397,14 @@ popd
 
 #region misc options
 %global cmake_config_args %{cmake_config_args} \\\
-	-DCMAKE_BUILD_TYPE=RelWithDebInfo \\\
 	-DCMAKE_INSTALL_PREFIX=%{install_prefix} \\\
 	-DENABLE_LINKER_BUILD_ID:BOOL=ON \\\
-	-DOFFLOAD_INSTALL_LIBDIR=%{unprefixed_libdir} \\\
 	-DPython3_EXECUTABLE=%{__python3}
+
+%if %{with offload}
+%global cmake_config_args %{cmake_config_args} \\\
+	-DOFFLOAD_INSTALL_LIBDIR=%{unprefixed_libdir}
+%endif
 
 # During the build, we use both the system clang and the just-built clang, and
 # they need to use the system and just-built shared objects respectively. If
@@ -1451,14 +1491,19 @@ fi
 cd ..
 
 %if %{with bundle_compat_lib}
+# MIPS and Arm targets were disabled in LLVM 20, but we still need them
+# enabled for the compat libraries.
 %cmake -S ../llvm-project-%{compat_ver}.src/llvm -B ../llvm-compat-libs -G Ninja \
     -DCMAKE_INSTALL_PREFIX=%{buildroot}%{_libdir}/llvm%{compat_maj_ver}/ \
     -DCMAKE_SKIP_RPATH=ON \
-    -DCMAKE_BUILD_TYPE=Release \
     -DLLVM_ENABLE_PROJECTS="clang;lldb" \
     -DLLVM_INCLUDE_BENCHMARKS=OFF \
     -DLLVM_INCLUDE_TESTS=OFF \
-    %{cmake_common_args}
+    %{cmake_common_args} \
+%if %{compat_maj_ver} <= 19
+    -DLLVM_TARGETS_TO_BUILD="$(echo %{targets_to_build});Mips;ARM" \
+%endif
+    %{nil}
 
 %ninja_build -C ../llvm-compat-libs LLVM
 %ninja_build -C ../llvm-compat-libs libclang.so
@@ -1678,7 +1723,7 @@ rm -rf %{buildroot}/%{install_datadir}/gdb
 # chmod go+w %{buildroot}/%{_datarootdir}/gdb/python/ompd/ompdModule.so
 # chmod +w %{buildroot}/%{_datarootdir}/gdb/python/ompd/ompdModule.so
 
-%ifnarch %{ix86}
+%if %{with offload}
 # Remove files that we don't package, yet.
 rm %{buildroot}%{install_bindir}/llvm-offload-device-info
 rm %{buildroot}%{install_bindir}/llvm-omp-kernel-replay
@@ -1752,6 +1797,11 @@ popd
 rm -f %{buildroot}%{install_libdir}/libLLVMBOLT*.a
 #endregion BOLT installation
 
+# Do not create symlinks for i686 to avoid multilib conflicts.
+# Don't ship man pages altogether.
+%ifarch %{ix86}
+rm -rf %{buildroot}%{install_mandir}
+%else
 # Create symlinks from the system install prefix to the llvm install prefix.
 # Do this at the end so it includes any files added by preceding steps.
 mkdir -p %{buildroot}%{_bindir}
@@ -1801,12 +1851,14 @@ copy_with_relative_symlinks %{buildroot}%{install_libdir} %{buildroot}%{_libdir}
 copy_with_relative_symlinks %{buildroot}%{install_libexecdir} %{buildroot}%{_libexecdir}
 copy_with_relative_symlinks %{buildroot}%{install_includedir} %{buildroot}%{_includedir}
 copy_with_relative_symlinks %{buildroot}%{install_datadir} %{buildroot}%{_datadir}
-%endif
 
-# ghost presence for llvm-config, managed by alternatives.
-touch %{buildroot}%{_bindir}/llvm-config-%{maj_ver}
-%if %{without compat_build}
-touch %{buildroot}%{_bindir}/llvm-config
+%if %{maj_ver} >= 21 && %{with offload}
+# Remove offload libaries since we only want to ship these in the configured
+# install prefix.
+rm -Rf %{buildroot}%{_libdir}/amdgcn-amd-amdhsa
+rm -Rf %{buildroot}%{_libdir}/nvptx64-nvidia-cuda
+%endif
+%endif
 %endif
 
 %if %{with bundle_compat_lib}
@@ -2229,36 +2281,14 @@ cp %{_vpath_builddir}/.ninja_log %{buildroot}%{_datadir}
 %ldconfig_scriptlets -n %{pkg_name_lld}-libs
 %endif
 
-%post -n %{pkg_name_llvm}-devel
-update-alternatives --install %{_bindir}/llvm-config-%{maj_ver} llvm-config-%{maj_ver} %{install_bindir}/llvm-config %{__isa_bits}
 %if %{without compat_build}
-update-alternatives --install %{_bindir}/llvm-config llvm-config %{install_bindir}/llvm-config %{__isa_bits}
-
-# During the upgrade from LLVM 16 (F38) to LLVM 17 (F39), we found out the
-# main llvm-devel package was leaving entries in the alternatives system.
-# Try to remove them now.
-for v in 14 15 16; do
-  if [[ -e %{_bindir}/llvm-config-$v
-        && "x$(%{_bindir}/llvm-config-$v --version | awk -F . '{ print $1 }')" != "x$v" ]]; then
-    update-alternatives --remove llvm-config-$v %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
-  fi
-done
+%pre -n %{pkg_name_llvm}-devel
+# llvm-config used to be managed by alternatives.
+# Remove them if they still exist.
+update-alternatives --remove-all llvm-config 2>/dev/null || :
+%if %{maj_ver} <= 20
+update-alternatives --remove-all llvm-config-%{maj_ver} 2>/dev/null || :
 %endif
-
-%postun -n %{pkg_name_llvm}-devel
-if [ $1 -eq 0 ]; then
-  update-alternatives --remove llvm-config%{exec_suffix} %{install_bindir}/llvm-config
-fi
-%if %{without compat_build}
-# When upgrading between minor versions (i.e. from x.y.1 to x.y.2), we must
-# not remove the alternative.
-# However, during a major version upgrade (i.e. from 16.x.y to 17.z.w), the
-# alternative must be removed in order to give priority to a newly installed
-# compat package.
-if [[ $1 -eq 0
-      || "x$(%{_bindir}/llvm-config%{exec_suffix} --version | awk -F . '{ print $1 }')" != "x%{maj_ver}" ]]; then
-  update-alternatives --remove llvm-config-%{maj_ver} %{install_bindir}/llvm-config%{exec_suffix}-%{__isa_bits}
-fi
 %endif
 
 %if %{without compat_build}
@@ -2279,20 +2309,24 @@ fi
   local maj_ver = rpm.expand("%{maj_ver}")
   for arg in rpm.expand("%*"):gmatch("%S+") do
     print(install_bindir .. "/" .. arg .. "\\n")
-    print(bindir .. "/" .. arg .. "-" .. maj_ver .. "\\n")
-    if rpm.expand("%{without compat_build}") == "1" then
-      print(bindir .. "/" .. arg .. "\\n")
+    if not rpm.expand("%{ix86}"):find(rpm.expand("%{_arch}")) then
+      print(bindir .. "/" .. arg .. "-" .. maj_ver .. "\\n")
+      if rpm.expand("%{without compat_build}") == "1" then
+        print(bindir .. "/" .. arg .. "\\n")
+      end
     end
   end
 }
 
 %define expand_mans() %{lua:
-  local mandir = rpm.expand("%{_mandir}")
-  local maj_ver = rpm.expand("%{maj_ver}")
-  for arg in rpm.expand("%*"):gmatch("%S+") do
-    print(mandir .. "/man1/" .. arg .. "-" .. maj_ver .. ".1.gz\\n")
-    if rpm.expand("%{without compat_build}") == "1" then
-      print(mandir .. "/man1/" .. arg .. ".1.gz\\n")
+  if not rpm.expand("%{ix86}"):find(rpm.expand("%{_arch}")) then
+    local mandir = rpm.expand("%{_mandir}")
+    local maj_ver = rpm.expand("%{maj_ver}")
+    for arg in rpm.expand("%*"):gmatch("%S+") do
+      print(mandir .. "/man1/" .. arg .. "-" .. maj_ver .. ".1.gz\\n")
+      if rpm.expand("%{without compat_build}") == "1" then
+        print(mandir .. "/man1/" .. arg .. ".1.gz\\n")
+      end
     end
   end
 }
@@ -2302,7 +2336,8 @@ fi
   local install_dir = rpm.expand("%{-i*}")
   for arg in rpm.expand("%*"):gmatch("%S+") do
     print(install_dir .. "/" .. arg .. "\\n")
-    if rpm.expand("%{without compat_build}") == "1" then
+    if rpm.expand("%{without compat_build}") == "1" and
+       not rpm.expand("%{ix86}"):find(rpm.expand("%{_arch}")) then
       print(dir .. "/" .. arg .. "\\n")
     end
   end
@@ -2517,12 +2552,7 @@ fi
 %files -n %{pkg_name_llvm}-devel
 %license llvm/LICENSE.TXT
 
-%{install_bindir}/llvm-config
-%ghost %{_bindir}/llvm-config-%{maj_ver}
-%if %{without compat_build}
-%ghost %{_bindir}/llvm-config
-%endif
-
+%expand_bins llvm-config
 %expand_mans llvm-config
 %expand_includes llvm llvm-c
 %{expand_libs %{expand:
@@ -2540,8 +2570,10 @@ fi
 %exclude %{install_libdir}/libLLVMTestingSupport.a
 %exclude %{install_libdir}/libLLVMTestingAnnotations.a
 %if %{without compat_build}
+%ifnarch %{ix86}
 %exclude %{_libdir}/libLLVMTestingSupport.a
 %exclude %{_libdir}/libLLVMTestingAnnotations.a
+%endif
 %endif
 
 %files -n %{pkg_name_llvm}-cmake-utils
@@ -2627,7 +2659,9 @@ fi
 %expand_bins clang-tblgen
 %dir %{install_datadir}/clang/
 %if %{without compat_build}
+%ifnarch %{ix86}
 %dir %{_datadir}/clang
+%endif
 %endif
 
 %files -n %{pkg_name_clang}-resource-filesystem
@@ -2752,7 +2786,7 @@ fi
 # Files that appear on all targets
 %{_prefix}/lib/clang/%{maj_ver}/lib/%{compiler_rt_triple}/libclang_rt.*
 
-%ifnarch s390x
+%if %{has_crtobjs}
 %{_prefix}/lib/clang/%{maj_ver}/lib/%{compiler_rt_triple}/clang_rt.crtbegin.o
 %{_prefix}/lib/clang/%{maj_ver}/lib/%{compiler_rt_triple}/clang_rt.crtend.o
 %endif
@@ -2777,9 +2811,7 @@ fi
     libompd.so
     libarcher.so
 }}
-%ifnarch %{ix86}
-# libomptarget is not supported on 32-bit systems.
-# s390x does not support the offloading plugins.
+%if %{with offload}
 %expand_libs libomptarget.so.%{so_suffix}
 %expand_libs libLLVMOffload.so.%{so_suffix}
 %endif
@@ -2792,16 +2824,25 @@ fi
 %{_prefix}/lib/clang/%{maj_ver}/include/ompt.h
 %{_prefix}/lib/clang/%{maj_ver}/include/ompt-multiplex.h
 %expand_libs cmake/openmp
-%ifnarch %{ix86}
-# libomptarget is not supported on 32-bit systems.
-# s390x does not support the offloading plugins.
+%if %{with offload}
+%{expand_libs %{expand:
+    libomptarget.so
+    libLLVMOffload.so
+}}
+
+%if %{maj_ver} < 21
 %{expand_libs %{expand:
     libomptarget.devicertl.a
     libomptarget-amdgpu*.bc
     libomptarget-nvptx*.bc
-    libomptarget.so
-    libLLVMOffload.so
 }}
+%else
+%{install_libdir}/amdgcn-amd-amdhsa/libompdevice.a
+%{install_libdir}/amdgcn-amd-amdhsa/libomptarget-amdgpu.bc
+%{install_libdir}/nvptx64-nvidia-cuda/libompdevice.a
+%{install_libdir}/nvptx64-nvidia-cuda/libomptarget-nvptx.bc
+%endif
+
 %expand_includes offload
 %endif
 #endregion OPENMP files
@@ -3035,6 +3076,10 @@ fi
 
 #region changelog
 %changelog
+* Mon May 12 2025 Konrad Kleine <kkleine@redhat.com> - 20.1.4-1
+- Update to LLVM 20.1.4
+- Drop ARM and MIPS targets (RHEL-86089)
+
 * Mon Apr 14 2025 Konrad Kleine <kkleine@redhat.com> - 20.1.2-1
 - Update to LLVM 20.1.2 (RHEL-80988)
 
