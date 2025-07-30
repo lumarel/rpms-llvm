@@ -24,7 +24,7 @@
 %bcond_with compat_build
 # Bundle compat libraries for a previous LLVM version, as part of llvm-libs and
 # clang-libs. Used on RHEL.
-%bcond_without bundle_compat_lib
+%bcond_with bundle_compat_lib
 %bcond_without check
 
 %if %{with bundle_compat_lib}
@@ -267,7 +267,7 @@
 #region main package
 Name:                 %{pkg_name_llvm}
 Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:              1%{?dist}
+Release:              2%{?dist}
 Summary:              The Low Level Virtual Machine
 
 License:              Apache-2.0 WITH LLVM-exception OR NCSA
@@ -3076,6 +3076,9 @@ fi
 
 #region changelog
 %changelog
+* Mon Jul 28 2025 Tom Stellard <tstellar@redhat.com> - 20.1.4-2
+- Remove bundled llvm19 compat package
+
 * Mon May 12 2025 Konrad Kleine <kkleine@redhat.com> - 20.1.4-1
 - Update to LLVM 20.1.4
 - Drop ARM and MIPS targets (RHEL-86089)
