@@ -25,7 +25,7 @@
 # Bundle compat libraries for a previous LLVM version, as part of llvm-libs and
 # clang-libs. Used on RHEL.
 %bcond_with bundle_compat_lib
-%bcond_without check
+%bcond_with check
 
 %if %{with bundle_compat_lib}
 %global compat_maj_ver 19
