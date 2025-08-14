@@ -175,13 +175,8 @@
 %global build_libdir llvm/%{_vpath_builddir}/lib
 %global unprefixed_libdir lib
 
-%if 0%{?rhel}
-%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;BPF;WebAssembly;RISCV"
-%global experimental_targets_to_build ""
-%else
 %global targets_to_build "all"
 %global experimental_targets_to_build "AVR"
-%endif
 
 %global build_install_prefix %{buildroot}%{install_prefix}
 
@@ -267,7 +262,7 @@
 #region main package
 Name:                 %{pkg_name_llvm}
 Version:              %{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~rc%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
-Release:              2%{?dist}
+Release:              2.full%{?dist}
 Summary:              The Low Level Virtual Machine
 
 License:              Apache-2.0 WITH LLVM-exception OR NCSA
