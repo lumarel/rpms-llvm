@@ -336,13 +336,8 @@ end
 %global build_libdir llvm/%{_vpath_builddir}/%{_lib}
 %global unprefixed_libdir %{_lib}
 
-%if 0%{?rhel}
-%global targets_to_build "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;BPF;WebAssembly;RISCV"
-%global experimental_targets_to_build ""
-%else
 %global targets_to_build "all"
 %global experimental_targets_to_build "AVR"
-%endif
 
 %global build_install_prefix %{buildroot}%{install_prefix}
 
@@ -446,9 +441,9 @@ end
 Name:		%{pkg_name_llvm}
 Version:	%{maj_ver}.%{min_ver}.%{patch_ver}%{?rc_ver:~%{rc_ver}}%{?llvm_snapshot_version_suffix:~%{llvm_snapshot_version_suffix}}
 %if 0%{?rhel} == 8
-Release:	1%{?dist}
+Release:	1.full%{?dist}
 %else
-Release:	%autorelease
+Release:	%autorelease -e full
 %endif
 Summary:	The Low Level Virtual Machine
 
