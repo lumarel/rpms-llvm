@@ -8,7 +8,7 @@ adjust:
     enabled: false
 
 discover:
-    - name: lld-tests
+    - name: lld-alternatives
       how: fmf
       url: https://gitlab.com/redhat/centos-stream/tests/llvm.git
       ref: main

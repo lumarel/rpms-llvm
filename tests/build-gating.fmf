@@ -40,11 +40,10 @@ adjust:
       or distro == rhel-8
 
 discover:
-  - name: llvm-tests
-    how: fmf
-    url: https://gitlab.com/redhat/centos-stream/tests/llvm.git
-    ref: main
-    filter: "tag:-spoils-installation & tag:-not-in-default"
+  how: fmf
+  url: https://gitlab.com/redhat/centos-stream/tests/llvm.git
+  ref: main
+  filter: "tag:-spoils-installation & tag:-not-in-default"
 execute:
     how: tmt
 provision:
