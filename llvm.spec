@@ -2,7 +2,7 @@
 #region version
 %global maj_ver 21
 %global min_ver 1
-%global patch_ver 6
+%global patch_ver 8
 #global rc_ver rc3
 
 %bcond_with snapshot_build
@@ -10,6 +10,7 @@
 %include %{_sourcedir}/version.spec.inc
 %endif
 #endregion version
+
 
 # Components enabled if supported by target architecture:
 %define gold_arches %{ix86} x86_64 aarch64 %{power64} s390x
@@ -42,7 +43,7 @@
 %bcond_with compat_build
 # Bundle compat libraries for a previous LLVM version, as part of llvm-libs and
 # clang-libs. Used on RHEL.
-%bcond_without bundle_compat_lib
+%bcond_with bundle_compat_lib
 %bcond_without check
 
 %if %{with bundle_compat_lib}
@@ -184,16 +185,6 @@ end
 %else
 %bcond_with pgo
 %endif
-%endif
-
-# We only want to run the performance comparison on snapshot builds.
-# centos-streams/RHEL do not have all the requirements. We tried to use pip,
-# but we've seen issues on some architectures. We're now restricting this
-# to Fedora.
-%if %{with pgo} && %{with snapshot_build} && %{defined fedora}
-%global run_pgo_perf_comparison 1
-%else
-%global run_pgo_perf_comparison %{nil}
 %endif
 
 # Sanity checks for PGO and bootstrapping
@@ -406,12 +397,6 @@ end
 %global pkg_name_polly polly%{pkg_suffix}
 #endregion polly globals
 
-#region PGO globals
-%if 0%{run_pgo_perf_comparison}
-%global llvm_test_suite_dir %{_datadir}/llvm-test-suite
-%endif
-#endregion PGO globals
-
 #region flang globals
 %global pkg_name_flang flang%{pkg_suffix}
 #endregion flang globals
@@ -503,11 +488,13 @@ Patch2003: 0001-cmake-Resolve-symlink-when-finding-install-prefix.patch
 
 #region LLD patches
 Patch106: 0001-19-Always-build-shared-libs-for-LLD.patch
+Patch2103: 0001-lld-Adjust-compressed-debug-level-test-for-s390x-wit.patch
 #endregion LLD patches
 
 #region polly patches
 Patch2102: 0001-20-polly-shared-libs.patch
 Patch2202: 0001-22-polly-shared-libs.patch
+Patch2302: 0001-22-polly-shared-libs.patch
 #endregion polly patches
 
 #region RHEL patches
@@ -519,6 +506,7 @@ Patch501: 0001-Fix-page-size-constant-on-aarch64-and-ppc64le.patch
 # because they already support kfunc __bpf_trap.
 Patch502: 0001-BPF-Support-Jump-Table-149715.patch
 Patch503: 0002-BPF-Remove-unused-weak-symbol-__bpf_trap-166003.patch
+Patch504: 0003-BPF-Remove-dead-code-related-to-__bpf_trap-global-va.patch
 #endregion RHEL patches
 
 # Fix a pgo miscompilation triggered by building Rust 1.87 with pgo on ppc64le.
@@ -540,6 +528,15 @@ Patch2006: 0001-Add-REQUIRES-asserts-to-test-added-in-145149-because.patch
 # to ignore it for these targets.
 Patch2101: 0001-clang-Add-a-hack-to-fix-the-offload-build-with-the-m.patch
 Patch2201: 0001-clang-Add-a-hack-to-fix-the-offload-build-with-the-m.patch
+
+# Fix segfault compiling plotters rust crate on ppc64le
+Patch2104: 0001-PowerPC-Add-check-for-cast-when-shufflevector-172443.patch
+
+# Fix for lldb python shell with python 3.14 (rbhz#2428608)
+Patch2105: 43cb4631c1f42dbfce78288b8ae30b5840ed59b3.patch
+
+# Fix for s390x vector miscompilation (rhbz#2430017)
+Patch2106: 0001-SystemZ-Fix-code-in-widening-vector-multiplication-1.patch
 
 %if 0%{?rhel} == 8
 %global python3_pkgversion 3.12
@@ -582,20 +579,6 @@ BuildRequires:	llvm(major) = %{host_clang_maj_ver}
 BuildRequires:	lld
 BuildRequires:	compiler-rt
 BuildRequires:	llvm
-%endif
-
-%if 0%{run_pgo_perf_comparison}
-BuildRequires:	llvm-test-suite
-BuildRequires:	tcl-devel
-BuildRequires:	which
-# pandas and scipy are needed for running llvm-test-suite/utils/compare.py
-# For RHEL we have to install it from pip and for fedora we take the RPM package.
-%if 0%{?rhel}
-BuildRequires:	python3-pip
-%else
-BuildRequires:	python3-pandas
-BuildRequires:	python3-scipy
-%endif
 %endif
 
 %else
@@ -1347,6 +1330,7 @@ Flang runtime libraries.
 # The following patches have been backported from LLVM 22.
 %patch -p1 -P502
 %patch -p1 -P503
+%patch -p1 -P504
 %endif
 %endif
 
@@ -1501,10 +1485,6 @@ OLD_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
 OLD_CWD="$PWD"
 
 %global builddir_instrumented $RPM_BUILD_DIR/instrumented-llvm
-%if 0%{run_pgo_perf_comparison}
-%global builddir_perf_pgo $RPM_BUILD_DIR/performance-of-pgoed-clang
-%global builddir_perf_system $RPM_BUILD_DIR/performance-of-system-clang
-%endif
 
 #region LLVM lit
 %if %{with python_lit}
@@ -1543,6 +1523,32 @@ popd
 %else
 %global cmake_common_args %{cmake_common_args} \\\
     -DLLVM_ENABLE_EH=ON
+%endif
+
+%if 0%{?rhel} == 8
+# On RHEL 8 we build with gcc, but the runtimes are built with the just built
+# clang, so we need to pass clang supported compiler flags to the runtimes
+# build.  If we pass the gcc flags, some of the cmake feature checkes will
+# fail, because they use -Werror and emit an error when passed gcc specific
+# compiler flags like -specs.
+# Specifically, this is required in order to fix the libomptest.so build.
+
+function strip_specs {
+  echo $1 | sed -e 's/-specs=[^ ]\+//g'
+}
+
+CLANG_CC_CONFIG=$(pwd)/redhat-hardened-clang.cfg
+CLANG_LD_CONFIG=$(pwd)/redhat-hardened-clang-ld.cfg
+echo "-fPIE" >> $CLANG_CC_CONFIG
+echo "-pie" >> $CLANG_LD_CONFIG
+CLANG_CCFLAGS_EXTRA=--config=$CLANG_CC_CONFIG
+CLANG_LDFLAGS_EXTRA=--config=$CLANG_LD_CONFIG
+
+CLANG_CXXFLAGS=$(strip_specs "$CXXFLAGS $CLANG_CCFLAGS_EXTRA")
+CLANG_CFLAGS=$(strip_specs "$CFLAGS $CLANG_CCFLAGS_EXTRA")
+CLANG_LDFLAGS=$(strip_specs "$LDFLAGS $CLANG_LDFLAGS_EXTRA")
+%global cmake_common_args %{cmake_common_args} \\\
+    -DRUNTIMES_CMAKE_ARGS="-DCMAKE_C_FLAGS=$CLANG_C_FLAGS;-DCMAKE_CXX_FLAGS=$CLANG_CXX_FLAGS;-DCMAKE_SHARED_LINKER_FLAGS=$CLANG_LD_FLAGS"
 %endif
 
 %if %reduce_debuginfo == 1
@@ -1961,70 +1967,6 @@ cd $OLD_CWD
 %cmake_build --target runtimes
 #endregion Final stage
 
-#region Performance comparison
-%if 0%{run_pgo_perf_comparison}
-
-function run_perf_test {
-	local build_dir=$1
-
-	cd %{llvm_test_suite_dir}
-	%__cmake -G Ninja \
-		-S "%{llvm_test_suite_dir}" \
-		-B "${build_dir}" \
-		-DCMAKE_GENERATOR=Ninja \
-		-DCMAKE_C_COMPILER=clang \
-		-DCMAKE_CXX_COMPILER=clang++ \
-		-DTEST_SUITE_BENCHMARKING_ONLY=ON \
-		-DTEST_SUITE_COLLECT_STATS=ON \
-		-DTEST_SUITE_USE_PERF=OFF \
-		-DTEST_SUITE_SUBDIRS=CTMark \
-		-DTEST_SUITE_RUN_BENCHMARKS=OFF \
-		-DTEST_SUITE_COLLECT_CODE_SIZE=OFF \
-		-C%{llvm_test_suite_dir}/cmake/caches/O3.cmake
-
-	# Build the test-suite
-	%__cmake --build "${build_dir}" -j1 --verbose
-
-	# Run the tests with lit:
-	%{builddir_instrumented}/bin/llvm-lit -v -o ${build_dir}/results.json ${build_dir} || true
-	cd $OLD_CWD
-}
-
-# Run performance test for system clang
-reset_paths
-run_perf_test %{builddir_perf_system}
-
-# Run performance test for PGOed clang
-reset_paths
-FINAL_BUILD_DIR=`pwd`/%{_vpath_builddir}
-export LD_LIBRARY_PATH="${FINAL_BUILD_DIR}/lib:${FINAL_BUILD_DIR}/lib64:${LD_LIBRARY_PATH}"
-export PATH="${FINAL_BUILD_DIR}/bin:${OLD_PATH}"
-run_perf_test %{builddir_perf_pgo}
-
-# Compare the performance of system and PGOed clang
-%if 0%{?rhel}
-python3 -m venv compare-env
-source ./compare-env/bin/activate
-pip install "pandas>=2.2.3"
-pip install "scipy>=1.13.1"
-MY_PYTHON_BIN=./compare-env/bin/python3
-%endif
-
-system_llvm_release=$(/usr/bin/clang --version | grep -Po '[0-9]+\.[0-9]+\.[0-9]' | head -n1)
-${MY_PYTHON_BIN} %{llvm_test_suite_dir}/utils/compare.py \
-    --metric compile_time \
-    --lhs-name ${system_llvm_release} \
-    --rhs-name pgo-%{version} \
-    %{builddir_perf_system}/results.json vs %{builddir_perf_pgo}/results.json > %{builddir_perf_pgo}/results-system-vs-pgo.txt || true
-
-echo "Result of Performance comparison between system and PGOed clang"
-cat %{builddir_perf_pgo}/results-system-vs-pgo.txt
-
-%if 0%{?rhel}
-# Deactivate virtual python environment created ealier
-deactivate
-%endif
-%endif
 #endregion Performance comparison
 
 #region compat lib
@@ -2169,9 +2111,6 @@ ln -s ../share/clang/clang-format-diff.py %{buildroot}%{install_bindir}/clang-fo
 # Install the PGO profile that was used to build this LLVM into the clang package
 %if 0%{with pgo}
 cp -v $RPM_BUILD_DIR/result.profdata %{buildroot}%{install_datadir}/llvm-pgo.profdata
-%if 0%{run_pgo_perf_comparison}
-cp -v %{builddir_perf_pgo}/results-system-vs-pgo.txt %{buildroot}%{install_datadir}/results-system-vs-pgo.txt
-%endif
 %endif
 
 # File in the macros file for other packages to use.  We are not doing this
@@ -3375,9 +3314,6 @@ fi
 
 %if 0%{with pgo}
 %{expand_datas %{expand: llvm-pgo.profdata }}
-%if 0%{run_pgo_perf_comparison}
-%{expand_datas %{expand: results-system-vs-pgo.txt }}
-%endif
 %endif
 
 
@@ -3536,6 +3472,11 @@ fi
 
 %ifnarch %{ix86} s390x riscv64
 %{_prefix}/lib/clang/%{maj_ver}/lib/%{compiler_rt_triple}/liborc_rt.a
+%endif
+%ifarch s390x
+%if %{maj_ver} >= 22
+%{_prefix}/lib/clang/%{maj_ver}/lib/%{compiler_rt_triple}/liborc_rt.a
+%endif
 %endif
 
 # Additional symlink if two triples are in use.
@@ -3773,6 +3714,7 @@ fi
     flang/iso_fortran_env_impl.mod
     flang/omp_lib.mod
     flang/omp_lib_kinds.mod
+    flang/flang_debug.mod
 }}
 %{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-flang.cfg
 %ifarch x86_64
