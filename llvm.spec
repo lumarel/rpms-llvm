@@ -1,8 +1,8 @@
 #region globals
 #region version
-%global maj_ver 21
+%global maj_ver 22
 %global min_ver 1
-%global patch_ver 8
+%global patch_ver 1
 #global rc_ver rc3
 
 %bcond_with snapshot_build
@@ -10,7 +10,6 @@
 %include %{_sourcedir}/version.spec.inc
 %endif
 #endregion version
-
 
 # Components enabled if supported by target architecture:
 %define gold_arches %{ix86} x86_64 aarch64 %{power64} s390x
@@ -35,7 +34,6 @@
 %define bcond_override_default_libcxx 0
 %define bcond_override_default_lto_build 0
 %define bcond_override_default_check 0
-%define _find_debuginfo_dwz_opts %{nil}
 %endif
 
 # Build compat packages llvmN instead of main package for the current LLVM
@@ -43,11 +41,11 @@
 %bcond_with compat_build
 # Bundle compat libraries for a previous LLVM version, as part of llvm-libs and
 # clang-libs. Used on RHEL.
-%bcond_with bundle_compat_lib
+%bcond_without bundle_compat_lib
 %bcond_without check
 
 %if %{with bundle_compat_lib}
-%global compat_maj_ver 20
+%global compat_maj_ver 21
 %global compat_ver %{compat_maj_ver}.1.8
 %endif
 
@@ -469,7 +467,9 @@ Source1001: changelog
 # behind the latest packaged LLVM version.
 
 #region CLANG patches
-Patch101: 0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
+Patch2100: 0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
+Patch2200: 0001-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
+Patch2300: 0001-23-PATCH-clang-Make-funwind-tables-the-default-on-all-a.patch
 Patch102: 0003-PATCH-clang-Don-t-install-static-libraries.patch
 Patch2002: 20-131099.patch
 
@@ -485,6 +485,14 @@ Patch104: 0001-Driver-Give-devtoolset-path-precedence-over-Installe.patch
 # Fix LLVMConfig.cmake when symlinks are used.
 # (https://github.com/llvm/llvm-project/pull/124743 landed in LLVM 21)
 Patch2003: 0001-cmake-Resolve-symlink-when-finding-install-prefix.patch
+
+# Backport a fix from LLVM 23.
+# https://github.com/llvm/llvm-project/pull/185375
+Patch2204: 22-185375.patch
+
+# Backport a fix for high CPU usage on s390x from LLVM 23.
+# https://github.com/llvm/llvm-project/pull/185922
+Patch2205: 22-185922.patch
 
 #region LLD patches
 Patch106: 0001-19-Always-build-shared-libs-for-LLD.patch
@@ -627,20 +635,17 @@ BuildRequires:	gnupg2
 
 BuildRequires:	swig
 BuildRequires:	libxml2-devel
-BuildRequires:	doxygen
 
 # For clang-offload-packager
 BuildRequires: elfutils-libelf-devel
-BuildRequires: perl
-BuildRequires: perl-Data-Dumper
-BuildRequires: perl-Encode
 BuildRequires: libffi-devel
 
+# For scan-build
+BuildRequires: perl-interpreter
 BuildRequires:	perl-generators
 
-# According to https://fedoraproject.org/wiki/Packaging:Emacs a package
-# should BuildRequires: emacs if it packages emacs integration files.
-BuildRequires:	emacs
+# We only need the emacs packaging macros, which are part of emacs-common.
+BuildRequires:	emacs-common
 
 BuildRequires:	libatomic
 
@@ -664,8 +669,6 @@ BuildRequires: python%{python3_pkgversion}-pybind11
 BuildRequires: python%{python3_pkgversion}-pyyaml
 BuildRequires: python%{python3_pkgversion}-nanobind-devel
 %endif
-
-BuildRequires:	graphviz
 
 # This is required because we need "ps" when running LLDB tests
 BuildRequires: procps-ng
@@ -1337,9 +1340,7 @@ Flang runtime libraries.
 #region LLVM preparation
 
 %py3_shebang_fix \
-	llvm/test/BugPoint/compile-custom.ll.py \
-	llvm/tools/opt-viewer/*.py \
-	llvm/utils/update_cc_test_checks.py
+	llvm/tools/opt-viewer/*.py
 
 #endregion LLVM preparation
 
@@ -1471,11 +1472,9 @@ export ASMFLAGS="%{build_cflags}"
 # We set CLANG_DEFAULT_PIE_ON_LINUX=OFF and PPC_LINUX_DEFAULT_IEEELONGDOUBLE=ON to match the
 # defaults used by Fedora's GCC.
 
-# Disable dwz on aarch64, because it takes a huge amount of time to decide not to optimize things.
-# This is copied from clang.
-%ifarch aarch64
+# Disable dwz because it takes a huge amount of time to decide not to
+# optimize things.
 %define _find_debuginfo_dwz_opts %{nil}
-%endif
 
 cd llvm
 
@@ -1862,12 +1861,14 @@ fi
   -DLLVM_VP_COUNTERS_PER_SITE=8
 
 %if %{defined host_clang_maj_ver}
-%global cmake_config_args_instrumented %{cmake_config_args_instrumented} \\\
-  -DLLVM_PROFDATA=%{_bindir}/llvm-profdata-%{host_clang_maj_ver}
+%global profdata %{_bindir}/llvm-profdata-%{host_clang_maj_ver}
+%global cxxfilt %{_bindir}/llvm-cxxfilt-%{host_clang_maj_ver}
 %else
-%global cmake_config_args_instrumented %{cmake_config_args_instrumented} \\\
-  -DLLVM_PROFDATA=%{_bindir}/llvm-profdata
+%global profdata %{_bindir}/llvm-profdata
+%global cxxfilt %{_bindir}/llvm-cxxfilt
 %endif
+%global cmake_config_args_instrumented %{cmake_config_args_instrumented} \\\
+  -DLLVM_PROFDATA=%{profdata}
 
 # TODO(kkleine): Should we see warnings like:
 # "function control flow change detected (hash mismatch)"
@@ -1886,9 +1887,13 @@ fi
 %cmake_build --target generate-profdata
 
 # Show top 10 functions in the profile
-llvm-profdata show --topn=10 %{builddir_instrumented}/tools/clang/utils/perf-training/clang.profdata | llvm-cxxfilt
+%{profdata} show --topn=10 %{builddir_instrumented}/tools/clang/utils/perf-training/clang.profdata | %{cxxfilt}
 
 cp %{builddir_instrumented}/tools/clang/utils/perf-training/clang.profdata $RPM_BUILD_DIR/result.profdata
+
+# The instrumented files are not needed anymore.
+# Remove them in order to free disk space (~10GiB).
+rm -rf %{builddir_instrumented}
 
 #endregion Perf training
 %endif
@@ -1967,7 +1972,17 @@ cd $OLD_CWD
 %cmake_build --target runtimes
 #endregion Final stage
 
-#endregion Performance comparison
+%if %{with lto_build}
+# The LTO cache is not needed anymore.
+# Remove it in order to free disk space.
+rm -rfv %{_vpath_builddir}/lto.cache
+%endif
+
+# Strip debug info from static libraries before the install phase because
+# LLVM already consumes a lot of disk space (i.e. > 150GiB).
+# The install phase duplicates files on disk, causing errors if the disk is
+# too small.
+RPM_BUILD_ROOT=$(realpath ..)/%{build_libdir} %__brp_strip_static_archive
 
 #region compat lib
 cd ..
@@ -2167,9 +2182,6 @@ chmod a+x %{buildroot}%{install_datadir}/scan-view/{Reporter.py,startfile.py}
 # remove editor integrations (bbedit, sublime, emacs, vim)
 rm -vf %{buildroot}%{install_datadir}/clang/clang-format-bbedit.applescript
 rm -vf %{buildroot}%{install_datadir}/clang/clang-format-sublime.py*
-
-# Remove unpackaged files
-rm -Rvf %{buildroot}%{install_datadir}/clang-doc
 
 # TODO: What are the Fedora guidelines for packaging bash autocomplete files?
 rm -vf %{buildroot}%{install_datadir}/clang/bash-autocomplete.sh
@@ -2507,6 +2519,9 @@ function reset_test_opts()
 
     # Some test (e.g. mlir) require this to be set.
     unset PYTHONPATH
+
+    # We use them in some cases.
+    unset LIT_NUM_SHARDS LIT_RUN_SHARD
 }
 
 # Convert array of test names into a regex.
@@ -2567,7 +2582,25 @@ export LIT_XFAIL="tools/UpdateTestChecks"
 reset_test_opts
 export LIT_XFAIL="$LIT_XFAIL;clang/test/CodeGen/profile-filter.c"
 
+%ifarch %ix86
+# These tests have been reaching a limit on small i386 servers.
+# We don't know exactly which limit is being reached, but python prints
+# "RuntimeError: can't start new thread". The issue appears to be related to
+# a large number of threads being created very closely while running Sema*
+# tests. The failing tests vary from time to time and are usually simple
+# tests. The execution appears to recover later, with new threads getting
+# created and completing the execution of the remaining tests.
+# In order to reduce the number of threads getting created, we split the
+# tests in 5 shards, ensuring that less than 5K tests will be executed each
+# time.
+export LIT_NUM_SHARDS=5
+for i in $(seq $LIT_NUM_SHARDS); do
+  export LIT_RUN_SHARD=$i
+  %cmake_build --target check-clang
+done
+%else
 %cmake_build --target check-clang
+%endif
 #endregion Test Clang
 
 #region Test Clang Tools
@@ -3035,7 +3068,6 @@ fi
 %license llvm/LICENSE.TXT
 
 %{expand_bins %{expand:
-    bugpoint
     dsymutil
     FileCheck
     llc
@@ -3131,8 +3163,18 @@ fi
 }}
 %endif
 
-%{expand_mans %{expand:
+%if %{maj_ver} >= 23
+%{expand_bins %{expand:
+    llubi
+    llvm-gpu-loader
+}}
+%else
+%{expand_bins %{expand:
     bugpoint
+}}
+%endif
+
+%{expand_mans %{expand:
     clang-tblgen
     dsymutil
     FileCheck
@@ -3193,6 +3235,16 @@ fi
 %{expand_mans %{expand:
     llvm-ir2vec
     llvm-offload-binary
+}}
+%endif
+
+%if %{maj_ver} >= 23
+%{expand_mans %{expand:
+    llubi
+}}
+%else
+%{expand_mans %{expand:
+    bugpoint
 }}
 %endif
 
@@ -3432,6 +3484,7 @@ fi
     clang/clang-include-fixer.py*
     clang/clang-tidy-diff.py*
     clang/run-find-all-symbols.py*
+    clang-doc/*
 }}
 
 %files -n %{pkg_name_clang}-tools-extra-devel
@@ -3696,26 +3749,9 @@ fi
 }}
 %{install_bindir}/flang-%{maj_ver}
 %{expand_includes %{expand:
-    flang/__cuda_builtins.mod
-    flang/__cuda_device.mod
-    flang/__fortran_builtins.mod
-    flang/__fortran_ieee_exceptions.mod
-    flang/__fortran_type_info.mod
-    flang/__ppc_intrinsics.mod
-    flang/__ppc_types.mod
-    flang/cooperative_groups.mod
-    flang/ieee_arithmetic.mod
-    flang/ieee_exceptions.mod
-    flang/ieee_features.mod
-    flang/iso_c_binding.mod
-    flang/iso_fortran_env.mod
-    flang/mma.mod
-    flang/cudadevice.mod
-    flang/iso_fortran_env_impl.mod
-    flang/omp_lib.mod
-    flang/omp_lib_kinds.mod
-    flang/flang_debug.mod
+    flang/*.mod
 }}
+
 %{_sysconfdir}/%{pkg_name_clang}/%{_target_platform}-flang.cfg
 %ifarch x86_64
 %{_sysconfdir}/%{pkg_name_clang}/i386-redhat-linux-gnu-flang.cfg
