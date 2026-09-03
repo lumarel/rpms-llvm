@@ -185,7 +185,7 @@ end
 %endif
 
 #region pgo
-%ifarch %{ix86}
+%ifarch %{ix86} riscv64
 %bcond_with pgo
 %else
 %if 0%{?fedora} >= 43 || 0%{?rhel} >= 9
@@ -263,7 +263,10 @@ end
 # The upper bound must remain and never exceed the latest RHEL version with GTS,
 # so that this does not apply to ELN or a brand new RHEL version.
 %if %{defined rhel} && 0%{?rhel} <= 10
+# TODO: Remove this in the future when GTS 15 gets fully built on riscv64.
+%ifnarch riscv64
 %global gts_version 15
+%endif
 %endif
 
 %if %{defined rhel} && 0%{?rhel} <= 8
@@ -522,6 +525,11 @@ Patch103: 0001-Workaround-a-bug-in-ORC-on-ppc64le.patch
 # With the introduction of --gcc-include-dir in the clang config file,
 # this might no longer be needed.
 Patch104: 0001-Driver-Give-devtoolset-path-precedence-over-Installe.patch
+
+# Add support for riscv64 triples.
+# https://github.com/llvm/llvm-project/pull/228450
+Patch2202: 228450-llvm22.patch
+Patch2302: 228450.patch
 #endregion CLANG patches
 
 # Fix lit tests for Python 3.15+ https://bugzilla.redhat.com/show_bug.cgi?id=2448969
@@ -580,6 +588,13 @@ Patch2105: 43cb4631c1f42dbfce78288b8ae30b5840ed59b3.patch
 
 # Fix for s390x vector miscompilation (rhbz#2430017)
 Patch2106: 0001-SystemZ-Fix-code-in-widening-vector-multiplication-1.patch
+
+# Fix some OpenMP tests on RISC-V.
+# https://github.com/llvm/llvm-project/pull/223681
+Patch2205: 0001-FIX-some-OMPT-tests-that-fail-on-RISC-V-156914.patch
+Patch2305: 0001-FIX-some-OMPT-tests-that-fail-on-RISC-V-156914.patch
+Patch2206: 223681.patch
+Patch2306: 223681.patch
 
 %if 0%{?rhel} == 8
 %global python3_pkgversion 3.12
@@ -1491,7 +1506,7 @@ cd llvm/utils/lit
 # TODO(kkleine): In clang we had this %ifarch s390 s390x aarch64 %ix86 ppc64le
 # Decrease debuginfo verbosity to reduce memory consumption during final library linking.
 %global reduce_debuginfo 0
-%ifarch %ix86
+%ifarch %ix86 riscv64
 %global reduce_debuginfo 1
 %endif
 %if 0%{?rhel} == 8 || %{with fastclang}
@@ -1918,8 +1933,8 @@ CLANG_LDFLAGS=$(strip_specs "$LDFLAGS $CLANG_LDFLAGS_EXTRA")
 	%global cmake_config_args %{cmake_config_args} -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS -Wl,-z,cet-report=error"
 %endif
 
-%if 0%{?rhel} == 8
 %ifnarch s390x
+%if 0%{?rhel} == 8
 	# This option uses the NUMBER_OF_LOGICAL_CORES query in CMake which doesn't
 	# work on s390x.
 	# https://gitlab.kitware.com/cmake/cmake/-/issues/26619
@@ -1928,6 +1943,10 @@ CLANG_LDFLAGS=$(strip_specs "$LDFLAGS $CLANG_LDFLAGS_EXTRA")
 	# but we can't guarantee it's enough. It's important to remember that RHEL8
 	# uses GCC. This value should not be applied to a build using clang.
 	%global cmake_config_args %{cmake_config_args} -DLLVM_RAM_PER_COMPILE_JOB=4096
+%else
+	# We noticed errors on riscv64 where the amount of RAM/job available was
+	# 1024MiB. Increase the RAM/compile job in order to avoid OOMs.
+	%global cmake_config_args %{cmake_config_args} -DLLVM_RAM_PER_COMPILE_JOB=1536
 %endif
 %endif
 #endregion misc options
@@ -2899,6 +2918,12 @@ export LIT_XFAIL="$LIT_XFAIL;ompt/target_memcpy_emi.c"
 %ifarch s390x ppc64le
 export LIT_XFAIL="$LIT_XFAIL;offloading/thread_state_1.c"
 export LIT_XFAIL="$LIT_XFAIL;offloading/thread_state_2.c"
+%endif
+
+%ifarch riscv64
+# The following tests are flaky and we'll filter them out.
+test_list_filter_out+=("libomp :: affinity/kmp-affinity.c")
+test_list_filter_out+=("libomp :: affinity/omp-places.c")
 %endif
 
 adjust_lit_filter_out test_list_filter_out
