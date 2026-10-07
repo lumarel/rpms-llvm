@@ -528,8 +528,8 @@ Patch104: 0001-Driver-Give-devtoolset-path-precedence-over-Installe.patch
 
 # Add support for riscv64 triples.
 # https://github.com/llvm/llvm-project/pull/228450
-Patch2202: 228450-llvm22.patch
-Patch2302: 228450.patch
+Patch2203: 228450-llvm22.patch
+Patch2303: 228450.patch
 #endregion CLANG patches
 
 # Fix lit tests for Python 3.15+ https://bugzilla.redhat.com/show_bug.cgi?id=2448969
